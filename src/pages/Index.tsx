@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 
 const MARKET_URL = "https://functions.poehali.dev/66dbea62-7575-4dac-8ab1-f42bce82db7b";
 const PAYMENT_URL = "https://functions.poehali.dev/373f750f-9364-43a8-8020-4f3f2cda099f";
+const TRADE_URL = "https://functions.poehali.dev/5af36d81-ec5d-4557-996a-036e428dad76";
 
 const NAV_ITEMS = [
   { id: "dashboard", icon: "LayoutDashboard", label: "Дашборд" },
@@ -224,6 +225,8 @@ function TradingPage() {
   const [currentPrice, setCurrentPrice] = useState<string | null>(null);
   const [orderBook, setOrderBook] = useState<OrderBook | null>(null);
   const [loadingBook, setLoadingBook] = useState(false);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [orderResult, setOrderResult] = useState<string | null>(null);
 
   const loadPrice = useCallback(async () => {
     try {
@@ -245,6 +248,43 @@ function TradingPage() {
 
   useInterval(loadPrice, 3000);
   useEffect(() => { loadBook(); }, [loadBook]);
+
+  async function placeOrder() {
+    setOrderLoading(true); setOrderResult(null);
+    try {
+      const priceNow = parseFloat(currentPrice || "0");
+      const slPrice = side === "LONG" ? priceNow * (1 - parseFloat(sl) / 100) : priceNow * (1 + parseFloat(sl) / 100);
+      const tpPrice = side === "LONG" ? priceNow * (1 + parseFloat(tp) / 100) : priceNow * (1 - parseFloat(tp) / 100);
+      // Для фьючерсов рассчитываем количество контрактов из суммы в USDT
+      const quantity = priceNow > 0 ? (parseFloat(amount) / priceNow * leverage).toFixed(3) : "0";
+      const r = await fetch(TRADE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "place_futures_order",
+          symbol: pair,
+          side: side === "LONG" ? "BUY" : "SELL",
+          type: orderType,
+          quantity,
+          leverage,
+          sl_price: parseFloat(sl) > 0 ? slPrice.toFixed(2) : undefined,
+          tp_price: parseFloat(tp) > 0 ? tpPrice.toFixed(2) : undefined,
+        })
+      });
+      const d = await r.json();
+      if (d.connected === false) {
+        setOrderResult("✗ Binance не подключён — добавьте API ключи в разделе «API Ключи»");
+      } else if (d.success) {
+        setOrderResult(`✓ Ордер #${d.order?.orderId} размещён · ${d.order?.status}`);
+      } else {
+        setOrderResult(`✗ ${d.error || "Ошибка"}`);
+      }
+    } catch {
+      setOrderResult("✗ Ошибка соединения с сервером");
+    }
+    setOrderLoading(false);
+    setTimeout(() => setOrderResult(null), 8000);
+  }
 
   const price = parseFloat(currentPrice || "0");
   const margin = parseFloat(amount) * leverage;
@@ -337,12 +377,19 @@ function TradingPage() {
           </div>
         </div>
 
-        <button className={`w-full py-3 font-orbitron text-sm font-bold tracking-widest rounded-none transition-all ${
+        {orderResult && (
+          <div className={`cyber-card rounded-none p-3 border font-mono text-xs ${orderResult.startsWith("✓") ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>
+            {orderResult}
+          </div>
+        )}
+
+        <button onClick={placeOrder} disabled={orderLoading || !amount}
+          className={`w-full py-3 font-orbitron text-sm font-bold tracking-widest rounded-none transition-all flex items-center justify-center gap-2 disabled:opacity-40 ${
           side === "LONG"
             ? "bg-[rgba(0,255,136,0.15)] border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.25)] hover:shadow-[0_0_20px_rgba(0,255,136,0.4)]"
             : "bg-[rgba(255,61,113,0.15)] border border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.25)] hover:shadow-[0_0_20px_rgba(255,61,113,0.4)]"
         }`}>
-          ОТКРЫТЬ {side} {DISPLAY[pair]}
+          {orderLoading ? <><Spinner /><span>РАЗМЕЩЕНИЕ...</span></> : `ОТКРЫТЬ ${side} ${DISPLAY[pair]}`}
         </button>
       </div>
 
@@ -741,6 +788,239 @@ function PortfolioPage() {
   );
 }
 
+/* ===== API KEYS PAGE ===== */
+interface ApiStatus {
+  connected: boolean;
+  can_trade?: boolean;
+  maker_commission?: number;
+  taker_commission?: number;
+  balances?: { asset: string; free: string; locked: string }[];
+  account_type?: string;
+  message?: string;
+}
+
+function ApiKeysPage() {
+  const [status, setStatus] = useState<ApiStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const checkStatus = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    try {
+      const r = await fetch(`${TRADE_URL}?action=status`);
+      const d = await r.json();
+      setStatus(d);
+    } catch {
+      setStatus({ connected: false, message: "Ошибка соединения с сервером" });
+    }
+    setLoading(false);
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => { checkStatus(); }, [checkStatus]);
+
+  if (loading) return <div className="flex items-center justify-center p-20"><Spinner /></div>;
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      {/* Connection status card */}
+      <div className={`cyber-card-glow rounded-none p-5 animate-fade-in-up border ${status?.connected ? "border-[var(--cyber-green)]" : "border-[var(--cyber-border)]"}`}>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className={`status-dot ${status?.connected ? "online" : "offline"}`} />
+            <div>
+              <div className="font-orbitron text-base font-bold" style={{ color: status?.connected ? "var(--cyber-green)" : "var(--cyber-red)" }}>
+                {status?.connected ? "BINANCE ПОДКЛЮЧЁН" : "КЛЮЧИ НЕ НАСТРОЕНЫ"}
+              </div>
+              {status?.connected && <div className="section-label">Аккаунт: {status.account_type} · Торговля: {status.can_trade ? "✓" : "✗"}</div>}
+            </div>
+          </div>
+          <button onClick={() => checkStatus(true)} disabled={refreshing}
+            className="cyber-btn rounded-none p-2">
+            {refreshing ? <Spinner /> : <Icon name="RefreshCw" size={14} />}
+          </button>
+        </div>
+
+        {!status?.connected && (
+          <div className="space-y-4">
+            <div className="cyber-card rounded-none p-4 border border-[var(--cyber-yellow)]">
+              <div className="font-orbitron text-xs text-[var(--cyber-yellow)] mb-3">КАК ПОЛУЧИТЬ API КЛЮЧИ</div>
+              <ol className="space-y-2">
+                {[
+                  "Войдите в Binance → перейдите в Профиль → Управление API",
+                  "Нажмите «Создать API» → выберите «Сгенерированный системой»",
+                  "Введите название (например: КиберБот) и пройдите 2FA",
+                  "В разрешениях включите: Чтение + Торговля спотом/фьючерсами",
+                  "НЕ включайте «Разрешить вывод» — это безопаснее",
+                  "Скопируйте API Key и Secret Key",
+                  "Вставьте их в секреты проекта: BINANCE_API_KEY и BINANCE_SECRET_KEY",
+                ].map((step, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="font-orbitron text-xs neon-text flex-shrink-0">{i + 1}.</span>
+                    <span className="font-mono text-xs text-[var(--cyber-text-dim)]">{step}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <a href="https://www.binance.com/ru/my/settings/api-management" target="_blank" rel="noopener noreferrer"
+              className="cyber-btn-primary rounded-none flex items-center justify-center gap-2 py-3 no-underline">
+              <Icon name="ExternalLink" size={14} />
+              ОТКРЫТЬ BINANCE API MANAGEMENT
+            </a>
+          </div>
+        )}
+
+        {status?.connected && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Тип аккаунта", val: status.account_type || "—" },
+                { label: "Торговля", val: status.can_trade ? "Активна" : "Заблокирована", ok: status.can_trade },
+                { label: "Комиссия мейкер", val: `${(status.maker_commission || 0) / 100}%` },
+                { label: "Комиссия тейкер", val: `${(status.taker_commission || 0) / 100}%` },
+              ].map(item => (
+                <div key={item.label} className="cyber-card rounded-none p-3">
+                  <div className="section-label mb-1">{item.label}</div>
+                  <div className={`font-mono text-sm ${item.ok === false ? "loss" : item.ok === true ? "profit" : "neon-text-cyan"}`}>{item.val}</div>
+                </div>
+              ))}
+            </div>
+
+            {status.balances && status.balances.length > 0 && (
+              <div className="cyber-card rounded-none p-4">
+                <div className="section-label mb-3">РЕАЛЬНЫЙ БАЛАНС BINANCE</div>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {status.balances.map(b => (
+                    <div key={b.asset} className="flex justify-between py-1 border-b border-[rgba(26,58,74,0.3)]">
+                      <span className="font-mono text-xs text-[var(--cyber-text)]">{b.asset}</span>
+                      <div className="flex gap-4">
+                        <span className="font-mono text-xs neon-text">{parseFloat(b.free).toFixed(6)}</span>
+                        {parseFloat(b.locked) > 0 && (
+                          <span className="font-mono text-xs text-[var(--cyber-yellow)]">🔒 {parseFloat(b.locked).toFixed(6)}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="cyber-card rounded-none p-3 border border-[rgba(0,255,136,0.2)]">
+              <div className="font-mono text-xs text-[var(--cyber-text-dim)]">
+                ✓ Ключи хранятся в зашифрованных секретах сервера. Фронтенд их никогда не видит.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ===== LIVE POSITIONS PAGE ===== */
+function LivePositionsPage() {
+  const [positions, setPositions] = useState<Record<string, string>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notConnected, setNotConnected] = useState(false);
+  const [closing, setClosing] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`${TRADE_URL}?action=futures_positions`);
+      const d = await r.json();
+      if (d.connected === false) { setNotConnected(true); }
+      else { setPositions(d.positions || []); }
+    } catch { /* skip */ }
+    setLoading(false);
+  }, []);
+
+  useInterval(load, 10000);
+
+  async function closePosition(symbol: string, qty: string, side: string) {
+    const closeSide = parseFloat(qty) > 0 ? "SELL" : "BUY";
+    setClosing(symbol);
+    try {
+      const r = await fetch(TRADE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "close_position", symbol, quantity: Math.abs(parseFloat(qty)).toString(), side: closeSide })
+      });
+      const d = await r.json();
+      if (d.success) { setMsg(`✓ Позиция ${symbol} закрыта`); load(); }
+      else { setMsg(`✗ ${d.error}`); }
+    } catch { setMsg("✗ Ошибка соединения"); }
+    setClosing(null);
+    setTimeout(() => setMsg(null), 4000);
+  }
+
+  if (loading) return <div className="flex items-center justify-center p-20"><Spinner /></div>;
+
+  if (notConnected) return (
+    <div className="cyber-card-glow rounded-none p-8 text-center animate-fade-in-up">
+      <Icon name="Key" size={40} className="mx-auto mb-3" style={{ color: "var(--cyber-yellow)" }} />
+      <div className="font-orbitron text-base text-[var(--cyber-yellow)] mb-2">BINANCE НЕ ПОДКЛЮЧЁН</div>
+      <div className="section-label">Добавьте BINANCE_API_KEY и BINANCE_SECRET_KEY в секреты, затем откройте раздел «API Ключи»</div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {msg && (
+        <div className={`cyber-card rounded-none p-3 border font-mono text-xs ${msg.startsWith("✓") ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg}</div>
+      )}
+      <div className="cyber-card-glow rounded-none p-5 animate-fade-in-up">
+        <div className="flex items-center justify-between mb-4">
+          <div className="section-label">ФЬЮЧЕРСНЫЕ ПОЗИЦИИ · LIVE BINANCE</div>
+          <div className="flex items-center gap-2"><div className="status-dot online" /><span className="section-label">AUTO-REFRESH 10с</span></div>
+        </div>
+        {positions.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="font-orbitron text-sm text-[var(--cyber-text-dim)]">НЕТ ОТКРЫТЫХ ПОЗИЦИЙ</div>
+            <div className="section-label mt-2">Откройте позицию в разделе «Торговля»</div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[var(--cyber-border)]">
+                  {["Пара", "Размер", "Вход", "Текущая", "P&L", "ROE%", ""].map(h => (
+                    <th key={h} className="section-label text-left py-2 pr-4">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map(p => {
+                  const qty = parseFloat(p.positionAmt || "0");
+                  const pnl = parseFloat(p.unRealizedProfit || "0");
+                  const roe = parseFloat(p.roe || "0") * 100;
+                  return (
+                    <tr key={p.symbol} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,255,136,0.03)]">
+                      <td className="font-mono text-sm text-[var(--cyber-text)] py-3 pr-4">{p.symbol}</td>
+                      <td className={`font-mono text-xs py-3 pr-4 font-semibold ${qty > 0 ? "profit" : "loss"}`}>{qty > 0 ? "LONG" : "SHORT"} {Math.abs(qty)}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-3 pr-4">${fmt(p.entryPrice || "0")}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text)] py-3 pr-4">${fmt(p.markPrice || "0")}</td>
+                      <td className={`font-mono text-sm py-3 pr-4 font-semibold ${pnl >= 0 ? "profit" : "loss"}`}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</td>
+                      <td className={`font-mono text-xs py-3 pr-4 ${roe >= 0 ? "profit" : "loss"}`}>{roe >= 0 ? "+" : ""}{roe.toFixed(2)}%</td>
+                      <td className="py-3">
+                        <button onClick={() => closePosition(p.symbol, p.positionAmt || "0", "")}
+                          disabled={closing === p.symbol}
+                          className="cyber-btn-danger rounded-none text-xs px-3 py-1 flex items-center gap-1">
+                          {closing === p.symbol ? <Spinner /> : "Закрыть"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ===== GENERIC ===== */
 function GenericPage({ title, icon }: { title: string; icon: string }) {
   return (
@@ -772,11 +1052,11 @@ export default function Index() {
       case "wallet": return <WalletPage />;
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;
-      case "positions": return <GenericPage title="ОТКРЫТЫЕ ПОЗИЦИИ" icon="Layers" />;
+      case "positions": return <LivePositionsPage />;
+      case "api": return <ApiKeysPage />;
       case "signals": return <GenericPage title="ТОРГОВЫЕ СИГНАЛЫ" icon="Radio" />;
       case "risk": return <GenericPage title="РИСК-МЕНЕДЖМЕНТ" icon="Shield" />;
       case "alerts": return <GenericPage title="АЛЕРТЫ И УВЕДОМЛЕНИЯ" icon="Bell" />;
-      case "api": return <GenericPage title="API КЛЮЧИ BINANCE" icon="Key" />;
       case "settings": return <GenericPage title="НАСТРОЙКИ" icon="Settings" />;
       default: return null;
     }

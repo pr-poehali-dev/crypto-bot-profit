@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Статус подключения (без ключей — ожидаем connected:false)",
+      "method": "GET",
+      "path": "/?action=status",
+      "expectedStatus": 200,
+      "expectedBody": {"connected": false},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
