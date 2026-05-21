@@ -1,0 +1,30 @@
+{
+  "tests": [
+    {
+      "name": "Методы оплаты",
+      "method": "GET",
+      "path": "/?action=methods",
+      "expectedStatus": 200,
+      "expectedBody": {"deposit": {}, "withdraw": {}},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Пополнение через карту (демо)",
+      "method": "POST",
+      "path": "/",
+      "body": {"type": "deposit", "method": "bank_card", "amount": 1000, "currency": "RUB"},
+      "expectedStatus": 200,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Вывод через ЮMoney (демо)",
+      "method": "POST",
+      "path": "/",
+      "body": {"type": "withdraw", "method": "yoomoney", "amount": 500, "currency": "RUB"},
+      "expectedStatus": 200,
+      "expectedBody": {"success": true},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

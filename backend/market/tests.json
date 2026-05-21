@@ -1,0 +1,28 @@
+{
+  "tests": [
+    {
+      "name": "Ticker 24h - несколько пар",
+      "method": "GET",
+      "path": "/?action=ticker24h&symbols=BTCUSDT,ETHUSDT",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Свечи BTC 1h",
+      "method": "GET",
+      "path": "/?action=klines&symbol=BTCUSDT&interval=1h&limit=24",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Ордербук ETH",
+      "method": "GET",
+      "path": "/?action=orderbook&symbol=ETHUSDT",
+      "expectedStatus": 200,
+      "expectedBody": {"bids": [], "asks": []},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
