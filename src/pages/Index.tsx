@@ -28,11 +28,16 @@ interface Candle { t: number; o: string; h: string; l: string; c: string; v: str
 interface OrderBook { bids: string[][]; asks: string[][]; }
 
 const STRATEGIES = [
-  { name: "Momentum RSI", status: true, pairs: 4, winrate: 68, today: 312.4 },
-  { name: "Grid Trading", status: true, pairs: 2, winrate: 82, today: 94.7 },
-  { name: "MACD Cross", status: false, pairs: 3, winrate: 61, today: 0 },
-  { name: "DCA Bot", status: true, pairs: 6, winrate: 74, today: 58.2 },
-  { name: "Scalper X3", status: false, pairs: 1, winrate: 71, today: 0 },
+  { name: "Momentum RSI", type: "rsi", status: true, pairs: 4, winrate: 68, today: 312.4, risk: "medium", desc: "Покупка при RSI<30, продажа при RSI>70", leverage: 5, timeframe: "1h" },
+  { name: "Grid Trading", type: "grid", status: true, pairs: 2, winrate: 82, today: 94.7, risk: "low", desc: "Сетка ордеров в заданном диапазоне цены", leverage: 2, timeframe: "—" },
+  { name: "MACD Cross", type: "macd", status: false, pairs: 3, winrate: 61, today: 0, risk: "medium", desc: "Сигналы по пересечению MACD и сигнальной линии", leverage: 3, timeframe: "4h" },
+  { name: "DCA Bot", type: "dca", status: true, pairs: 6, winrate: 74, today: 58.2, risk: "low", desc: "Усреднение позиции при падении цены", leverage: 1, timeframe: "—" },
+  { name: "Bollinger Bands", type: "bollinger", status: false, pairs: 3, winrate: 64, today: 0, risk: "medium", desc: "Отскок от верхней/нижней полосы Боллинджера", leverage: 4, timeframe: "1h" },
+  { name: "EMA Cross", type: "ema_cross", status: true, pairs: 2, winrate: 71, today: 89.3, risk: "low", desc: "Пересечение быстрой EMA9 и медленной EMA21", leverage: 3, timeframe: "2h" },
+  { name: "Scalping 1m", type: "scalping", status: true, pairs: 5, winrate: 76, today: 423.8, risk: "medium", desc: "Быстрые сделки на 1-минутных свечах EMA+объём", leverage: 10, timeframe: "1m" },
+  { name: "Trend ADX+Supertrend", type: "trend", status: true, pairs: 8, winrate: 72, today: 547.1, risk: "low", desc: "ADX>25 подтверждает тренд, Supertrend даёт вход", leverage: 5, timeframe: "4h" },
+  { name: "Mean Reversion Z-Score", type: "mean_reversion", status: false, pairs: 5, winrate: 69, today: 0, risk: "low", desc: "Вход при Z-score >2.0 — возврат к среднему SMA20", leverage: 3, timeframe: "1h" },
+  { name: "Funding Rate Arb", type: "funding_arb", status: true, pairs: 4, winrate: 94, today: 182.5, risk: "minimal", desc: "Хедж при ставке финансирования >0.1% — почти без риска", leverage: 1, timeframe: "8h" },
 ];
 
 const MOCK_HISTORY = [
@@ -624,44 +629,112 @@ function WalletPage() {
 }
 
 /* ===== STRATEGIES ===== */
+const RISK_COLORS: Record<string, string> = {
+  minimal: "text-[var(--cyber-cyan)] border-[var(--cyber-cyan)]",
+  low: "text-[var(--cyber-green)] border-[var(--cyber-green)]",
+  medium: "text-[var(--cyber-yellow)] border-[var(--cyber-yellow)]",
+  high: "text-[var(--cyber-red)] border-[var(--cyber-red)]",
+};
+const RISK_LABELS: Record<string, string> = { minimal: "МИН РИСК", low: "НИЗКИЙ", medium: "СРЕДНИЙ", high: "ВЫСОКИЙ" };
+const TYPE_ICONS: Record<string, string> = {
+  rsi: "Activity", grid: "LayoutGrid", macd: "GitBranch", dca: "TrendingDown",
+  bollinger: "Waves", ema_cross: "Shuffle", scalping: "Zap", trend: "TrendingUp",
+  mean_reversion: "RefreshCw", funding_arb: "Repeat",
+};
+
 function StrategiesPage() {
   const [strategies, setStrategies] = useState(STRATEGIES);
+  const [filter, setFilter] = useState<"all" | "active" | "stopped">("all");
+
+  const active = strategies.filter(s => s.status).length;
+  const totalToday = strategies.filter(s => s.today > 0).reduce((a, b) => a + b.today, 0);
+  const avgWinrate = Math.round(strategies.reduce((a, b) => a + b.winrate, 0) / strategies.length);
+
+  const filtered = strategies.filter(s =>
+    filter === "all" ? true : filter === "active" ? s.status : !s.status
+  );
+
   return (
     <div className="space-y-4">
-      <div className="cyber-card-glow rounded-none p-5 animate-fade-in-up">
-        <div className="section-label mb-4">АВТОМАТИЧЕСКИЕ СТРАТЕГИИ</div>
-        <div className="space-y-3">
-          {strategies.map((s, i) => (
-            <div key={s.name} className="cyber-card rounded-none p-4 animate-fade-in-up" style={{ animationDelay: `${i * 80}ms`, opacity: 0 }}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+      {/* Сводка */}
+      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
+        {[
+          { label: "Активных", val: `${active}/${strategies.length}`, color: "neon-text" },
+          { label: "Прибыль сегодня", val: `+$${totalToday.toFixed(1)}`, color: "profit" },
+          { label: "Ср. винрейт", val: `${avgWinrate}%`, color: "neon-text-cyan" },
+        ].map(s => (
+          <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
+            <div className={`font-orbitron text-lg font-bold ${s.color}`}>{s.val}</div>
+            <div className="section-label mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Фильтр */}
+      <div className="flex gap-2 animate-fade-in-up">
+        {(["all", "active", "stopped"] as const).map(f => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`px-3 py-1 font-mono text-xs rounded-none border transition-all ${filter === f ? "border-[var(--cyber-green)] text-[var(--cyber-green)] bg-[rgba(0,255,136,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-green)]"}`}>
+            {f === "all" ? "ВСЕ" : f === "active" ? "АКТИВНЫЕ" : "ОСТАНОВЛЕНЫ"}
+          </button>
+        ))}
+      </div>
+
+      {/* Список стратегий */}
+      <div className="space-y-3">
+        {filtered.map((s, i) => (
+          <div key={s.name} className="cyber-card rounded-none p-4 animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="flex flex-col items-center gap-1.5 pt-0.5">
                   <div className={`status-dot ${s.status ? "online" : "offline"}`} />
-                  <div>
-                    <div className="font-orbitron text-sm text-[var(--cyber-text)] font-semibold">{s.name}</div>
-                    <div className="section-label">{s.pairs} пар · Винрейт {s.winrate}%</div>
-                  </div>
+                  <Icon name={TYPE_ICONS[s.type] || "Bot"} size={14} className="text-[var(--cyber-text-dim)]" />
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <div className={`font-mono text-sm font-semibold ${s.today > 0 ? "profit" : "neutral"}`}>{s.today > 0 ? `+$${s.today}` : "—"}</div>
-                    <div className="section-label">сегодня</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <div className="font-orbitron text-sm text-[var(--cyber-text)] font-semibold">{s.name}</div>
+                    <span className={`px-1.5 py-0.5 font-mono text-[10px] border rounded-none ${RISK_COLORS[s.risk]}`}>
+                      {RISK_LABELS[s.risk]}
+                    </span>
+                    <span className="px-1.5 py-0.5 font-mono text-[10px] border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] rounded-none">
+                      {s.timeframe}
+                    </span>
                   </div>
-                  <button
-                    onClick={() => setStrategies(prev => prev.map((st, j) => j === i ? { ...st, status: !st.status } : st))}
-                    className={`px-4 py-1.5 font-mono text-xs rounded-none transition-all border ${s.status ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]"}`}>
-                    {s.status ? "СТОП" : "СТАРТ"}
-                  </button>
+                  <div className="text-[11px] text-[var(--cyber-text-dim)] mb-2 leading-relaxed">{s.desc}</div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span className="section-label">{s.pairs} пар</span>
+                    <span className="section-label">Плечо x{s.leverage}</span>
+                    <span className="section-label">Винрейт <span className="neon-text font-semibold">{s.winrate}%</span></span>
+                  </div>
                 </div>
               </div>
-              {s.status && (
-                <div className="mt-3">
-                  <div className="cyber-progress"><div className="cyber-progress-bar" style={{ width: `${s.winrate}%` }} /></div>
-                  <div className="flex justify-between mt-1"><span className="section-label">Эффективность</span><span className="font-mono text-xs neon-text">{s.winrate}%</span></div>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <div className="text-right">
+                  <div className={`font-mono text-sm font-semibold ${s.today > 0 ? "profit" : "neutral"}`}>
+                    {s.today > 0 ? `+$${s.today}` : "—"}
+                  </div>
+                  <div className="section-label">сегодня</div>
                 </div>
-              )}
+                <button
+                  onClick={() => setStrategies(prev => prev.map((st, j) => st.name === s.name ? { ...st, status: !st.status } : st))}
+                  className={`px-4 py-1.5 font-mono text-xs rounded-none transition-all border ${s.status ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]"}`}>
+                  {s.status ? "СТОП" : "СТАРТ"}
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
+            {s.status && (
+              <div className="mt-3 pt-3 border-t border-[var(--cyber-border)]">
+                <div className="cyber-progress">
+                  <div className="cyber-progress-bar" style={{ width: `${s.winrate}%` }} />
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="section-label">Эффективность</span>
+                  <span className="font-mono text-xs neon-text">{s.winrate}%</span>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
