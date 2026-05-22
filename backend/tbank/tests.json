@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "GET accounts — нет токена",
+      "method": "GET",
+      "path": "/?action=accounts",
+      "expectedStatus": 500,
+      "expectedBody": {"error": "string"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "GET search",
+      "method": "GET",
+      "path": "/?action=search&query=SBER&kind=share",
+      "expectedStatus": 500,
+      "expectedBody": {"error": "string"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

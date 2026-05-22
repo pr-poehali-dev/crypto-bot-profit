@@ -4,11 +4,13 @@ import Icon from "@/components/ui/icon";
 const MARKET_URL = "https://functions.poehali.dev/66dbea62-7575-4dac-8ab1-f42bce82db7b";
 const PAYMENT_URL = "https://functions.poehali.dev/373f750f-9364-43a8-8020-4f3f2cda099f";
 const TRADE_URL = "https://functions.poehali.dev/5af36d81-ec5d-4557-996a-036e428dad76";
+const TBANK_URL = "https://functions.poehali.dev/fb80b07e-125f-40dc-8244-d902c6b0731a";
 
 const NAV_ITEMS = [
   { id: "dashboard", icon: "LayoutDashboard", label: "Дашборд" },
   { id: "trading", icon: "TrendingUp", label: "Торговля" },
   { id: "strategies", icon: "Brain", label: "Стратегии" },
+  { id: "tbank", icon: "Building2", label: "Т-Банк" },
   { id: "wallet", icon: "Wallet", label: "Кошелёк" },
   { id: "history", icon: "History", label: "История" },
   { id: "portfolio", icon: "PieChart", label: "Портфель" },
@@ -740,6 +742,206 @@ function StrategiesPage() {
   );
 }
 
+/* ===== TBANK ===== */
+const TBANK_INSTRUMENTS = [
+  { figi: "BBG004730N88", ticker: "SBER", name: "Сбербанк", type: "Акция", price: 297.4, change: +1.2, currency: "RUB" },
+  { figi: "BBG004731354", ticker: "GAZP", name: "Газпром", type: "Акция", price: 128.6, change: -0.8, currency: "RUB" },
+  { figi: "BBG004RVFCY3", ticker: "YNDX", name: "Яндекс", type: "Акция", price: 3812.0, change: +2.4, currency: "RUB" },
+  { figi: "BBG00Y91R9T3", ticker: "OZON", name: "Ozon Holdings", type: "Акция", price: 3140.0, change: +0.6, currency: "RUB" },
+  { figi: "BBG000BVPV84", ticker: "AAPL", name: "Apple Inc.", type: "Акция", price: 188.4, change: +0.3, currency: "USD" },
+  { figi: "BBG000BDTBL9", ticker: "MSFT", name: "Microsoft", type: "Акция", price: 378.2, change: +1.1, currency: "USD" },
+  { figi: "TCS00A106YF0", ticker: "TMOS", name: "Тинькофф iMOEX ETF", type: "ETF", price: 6.14, change: +0.9, currency: "RUB" },
+  { figi: "FUTSI0924000", ticker: "Si-9.24", name: "Фьючерс USD/RUB", type: "Фьючерс", price: 89540, change: -0.2, currency: "RUB" },
+];
+
+const TBANK_ORDERS = [
+  { id: "TB-1021", ticker: "SBER", type: "Акция", dir: "BUY", lots: 10, price: 295.0, status: "Исполнен", pnl: 234.0 },
+  { id: "TB-1020", ticker: "AAPL", type: "Акция", dir: "SELL", lots: 2, price: 190.2, status: "Исполнен", pnl: 112.5 },
+  { id: "TB-1019", ticker: "TMOS", type: "ETF", dir: "BUY", lots: 50, price: 6.08, status: "Исполнен", pnl: 30.0 },
+  { id: "TB-1018", ticker: "Si-9.24", type: "Фьючерс", dir: "SELL", lots: 1, price: 89800, status: "Исполнен", pnl: -260.0 },
+];
+
+function TBankPage() {
+  const [tab, setTab] = useState<"market" | "orders" | "portfolio">("market");
+  const [search, setSearch] = useState("");
+  const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
+  const [loading, setLoading] = useState(false);
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetch(`${TBANK_URL}?action=accounts`)
+      .then(r => r.json())
+      .then(d => setHasToken(!d.error))
+      .catch(() => setHasToken(false));
+  }, []);
+
+  const filtered = TBANK_INSTRUMENTS.filter(i => {
+    const matchSearch = search === "" || i.ticker.toLowerCase().includes(search.toLowerCase()) || i.name.toLowerCase().includes(search.toLowerCase());
+    const matchKind = kind === "share" ? i.type === "Акция" : kind === "etf" ? i.type === "ETF" : i.type === "Фьючерс";
+    return matchSearch && matchKind;
+  });
+
+  const totalPnl = TBANK_ORDERS.reduce((a, b) => a + b.pnl, 0);
+  const wins = TBANK_ORDERS.filter(o => o.pnl > 0).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Заголовок */}
+      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="font-orbitron text-base font-bold text-[var(--cyber-text)] flex items-center gap-2">
+            <Icon name="Building2" size={16} className="neon-text-cyan" />
+            Т-БАНК INVEST
+          </div>
+          <div className="section-label mt-0.5">Акции · ETF · Фьючерсы · Фонды</div>
+        </div>
+        <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${hasToken === true ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : hasToken === false ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${hasToken === true ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-red)]"}`} />
+          {hasToken === true ? "ПОДКЛЮЧЁН" : hasToken === false ? "НЕТ ТОКЕНА" : "ПРОВЕРКА..."}
+        </div>
+      </div>
+
+      {/* Предупреждение если нет токена */}
+      {hasToken === false && (
+        <div className="cyber-card rounded-none p-4 border border-[var(--cyber-yellow)] animate-fade-in-up">
+          <div className="flex items-start gap-3">
+            <Icon name="AlertTriangle" size={16} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
+            <div>
+              <div className="font-mono text-xs text-[var(--cyber-yellow)] font-semibold mb-1">ТОКЕН НЕ ДОБАВЛЕН</div>
+              <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+                Чтобы бот торговал акциями и ETF: зайди в <span className="text-[var(--cyber-cyan)]">invest.tbank.ru</span> → Профиль → Настройки → Токен для Open API → скопируй и вставь в поле <span className="text-[var(--cyber-cyan)]">TBANK_INVEST_TOKEN</span> в настройках выше.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Статы */}
+      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
+        {[
+          { label: "Сделок", val: String(TBANK_ORDERS.length), color: "neon-text-cyan" },
+          { label: "P&L итого", val: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(0)} ₽`, color: totalPnl >= 0 ? "profit" : "loss" },
+          { label: "Прибыльных", val: `${Math.round(wins / TBANK_ORDERS.length * 100)}%`, color: "neon-text" },
+        ].map(s => (
+          <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
+            <div className={`font-orbitron text-lg font-bold ${s.color}`}>{s.val}</div>
+            <div className="section-label mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Вкладки */}
+      <div className="flex gap-2 animate-fade-in-up">
+        {(["market", "orders", "portfolio"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-3 py-1 font-mono text-xs rounded-none border transition-all ${tab === t ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
+            {t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
+          </button>
+        ))}
+      </div>
+
+      {/* РЫНОК */}
+      {tab === "market" && (
+        <div className="space-y-3 animate-fade-in-up">
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Поиск: SBER, AAPL..."
+              className="flex-1 min-w-[140px] bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-3 py-1.5 rounded-none outline-none focus:border-[var(--cyber-cyan)] placeholder:text-[var(--cyber-text-dim)]"
+            />
+            {(["share", "etf", "futures"] as const).map(k => (
+              <button key={k} onClick={() => setKind(k)}
+                className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${kind === k ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                {k === "share" ? "АКЦИИ" : k === "etf" ? "ETF/ФОНДЫ" : "ФЬЮЧЕРСЫ"}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            {filtered.map((inst, i) => (
+              <div key={inst.figi} className="cyber-card rounded-none p-3 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 50}ms`, opacity: 0 }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-none bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] flex items-center justify-center font-orbitron text-[10px] font-bold text-[var(--cyber-cyan)]">
+                    {inst.ticker.slice(0, 3)}
+                  </div>
+                  <div>
+                    <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">{inst.ticker}</div>
+                    <div className="section-label">{inst.name} · {inst.type}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <div className="font-mono text-sm text-[var(--cyber-text)]">{inst.price.toLocaleString("ru-RU")} {inst.currency === "RUB" ? "₽" : "$"}</div>
+                    <div className={`font-mono text-xs ${inst.change >= 0 ? "profit" : "loss"}`}>{inst.change >= 0 ? "+" : ""}{inst.change}%</div>
+                  </div>
+                  <button className="px-3 py-1 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all">
+                    КУПИТЬ
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* СДЕЛКИ */}
+      {tab === "orders" && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-3">ИСТОРИЯ СДЕЛОК Т-БАНК</div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[var(--cyber-border)]">
+                  {["ID", "Тикер", "Тип", "Направление", "Лотов", "Цена", "P&L", "Статус"].map(h => (
+                    <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {TBANK_ORDERS.map((o, i) => (
+                  <tr key={o.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,212,255,0.03)] animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.id}</td>
+                    <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4 font-semibold">{o.ticker}</td>
+                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.type}</td>
+                    <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.dir === "BUY" ? "profit" : "loss"}`}>{o.dir === "BUY" ? "ПОКУПКА" : "ПРОДАЖА"}</td>
+                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.lots}</td>
+                    <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.price.toLocaleString("ru-RU")} ₽</td>
+                    <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.pnl >= 0 ? "profit" : "loss"}`}>{o.pnl >= 0 ? "+" : ""}{o.pnl} ₽</td>
+                    <td className="font-mono text-xs text-[var(--cyber-green)] py-2 pr-4">{o.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ПОРТФЕЛЬ */}
+      {tab === "portfolio" && (
+        <div className="space-y-3 animate-fade-in-up">
+          {[
+            { name: "Сбербанк (SBER)", type: "Акция", qty: 100, price: 297.4, pnl: 234.0, pnlPct: 0.8 },
+            { name: "Apple (AAPL)", type: "Акция", qty: 4, price: 188.4, pnl: 112.5, pnlPct: 1.4 },
+            { name: "Тинькофф iMOEX ETF", type: "ETF", qty: 500, price: 6.14, pnl: 30.0, pnlPct: 0.9 },
+            { name: "Яндекс (YNDX)", type: "Акция", qty: 8, price: 3812.0, pnl: -186.0, pnlPct: -0.6 },
+          ].map((p, i) => (
+            <div key={p.name} className="cyber-card rounded-none p-4 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+              <div>
+                <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">{p.name}</div>
+                <div className="section-label">{p.type} · {p.qty} шт. · {p.price.toLocaleString("ru-RU")} ₽</div>
+              </div>
+              <div className="text-right">
+                <div className={`font-mono text-sm font-semibold ${p.pnl >= 0 ? "profit" : "loss"}`}>{p.pnl >= 0 ? "+" : ""}{p.pnl} ₽</div>
+                <div className={`font-mono text-xs ${p.pnlPct >= 0 ? "profit" : "loss"}`}>{p.pnlPct >= 0 ? "+" : ""}{p.pnlPct}%</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ===== HISTORY ===== */
 function HistoryPage() {
   return (
@@ -1122,6 +1324,7 @@ export default function Index() {
       case "dashboard": return <DashboardPage botRunning={botRunning} setBotRunning={setBotRunning} />;
       case "trading": return <TradingPage />;
       case "strategies": return <StrategiesPage />;
+      case "tbank": return <TBankPage />;
       case "wallet": return <WalletPage />;
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;
