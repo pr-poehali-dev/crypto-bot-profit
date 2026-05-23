@@ -761,11 +761,37 @@ const TBANK_ORDERS = [
   { id: "TB-1018", ticker: "Si-9.24", type: "Фьючерс", dir: "SELL", lots: 1, price: 89800, status: "Исполнен", pnl: -260.0 },
 ];
 
+// Демо-данные для баланса (до подключения реального токена)
+const TBANK_BALANCE = {
+  total: 187_430,
+  free: 42_180,
+  invested: 145_250,
+  profit_total: 16_840,
+  profit_today: 1_255,
+  profit_week: 4_320,
+  spent_total: 145_250,
+  withdrawn: 0,
+  commission_total: 2_134,
+  profit_pct: 11.6,
+  trades_total: 47,
+  trades_win: 38,
+  trades_loss: 9,
+};
+
+const TBANK_DAILY = [
+  { day: "18 мая", pnl: 320, trades: 5 },
+  { day: "19 мая", pnl: -180, trades: 3 },
+  { day: "20 мая", pnl: 870, trades: 8 },
+  { day: "21 мая", pnl: 430, trades: 6 },
+  { day: "22 мая", pnl: 1100, trades: 9 },
+  { day: "23 мая", pnl: 755, trades: 7 },
+  { day: "24 мая", pnl: 1255, trades: 9 },
+];
+
 function TBankPage() {
-  const [tab, setTab] = useState<"market" | "orders" | "portfolio">("market");
+  const [tab, setTab] = useState<"balance" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
-  const [loading, setLoading] = useState(false);
   const [hasToken, setHasToken] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -783,10 +809,12 @@ function TBankPage() {
 
   const totalPnl = TBANK_ORDERS.reduce((a, b) => a + b.pnl, 0);
   const wins = TBANK_ORDERS.filter(o => o.pnl > 0).length;
+  const maxDaily = Math.max(...TBANK_DAILY.map(d => Math.abs(d.pnl)));
 
   return (
     <div className="space-y-4">
-      {/* Заголовок */}
+
+      {/* Шапка */}
       <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="font-orbitron text-base font-bold text-[var(--cyber-text)] flex items-center gap-2">
@@ -801,46 +829,147 @@ function TBankPage() {
         </div>
       </div>
 
-      {/* Предупреждение если нет токена */}
       {hasToken === false && (
         <div className="cyber-card rounded-none p-4 border border-[var(--cyber-yellow)] animate-fade-in-up">
           <div className="flex items-start gap-3">
             <Icon name="AlertTriangle" size={16} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
             <div>
-              <div className="font-mono text-xs text-[var(--cyber-yellow)] font-semibold mb-1">ТОКЕН НЕ ДОБАВЛЕН</div>
+              <div className="font-mono text-xs text-[var(--cyber-yellow)] font-semibold mb-1">ТОКЕН НЕ ДОБАВЛЕН — показаны демо-данные</div>
               <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
-                Чтобы бот торговал акциями и ETF: зайди в <span className="text-[var(--cyber-cyan)]">invest.tbank.ru</span> → Профиль → Настройки → Токен для Open API → скопируй и вставь в поле <span className="text-[var(--cyber-cyan)]">TBANK_INVEST_TOKEN</span> в настройках выше.
+                invest.tbank.ru → Профиль → Настройки → Токен для Open API → вставь в секрет <span className="text-[var(--cyber-cyan)]">TBANK_INVEST_TOKEN</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Статы */}
-      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
-        {[
-          { label: "Сделок", val: String(TBANK_ORDERS.length), color: "neon-text-cyan" },
-          { label: "P&L итого", val: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(0)} ₽`, color: totalPnl >= 0 ? "profit" : "loss" },
-          { label: "Прибыльных", val: `${Math.round(wins / TBANK_ORDERS.length * 100)}%`, color: "neon-text" },
-        ].map(s => (
-          <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
-            <div className={`font-orbitron text-lg font-bold ${s.color}`}>{s.val}</div>
-            <div className="section-label mt-0.5">{s.label}</div>
-          </div>
-        ))}
-      </div>
-
       {/* Вкладки */}
-      <div className="flex gap-2 animate-fade-in-up">
-        {(["market", "orders", "portfolio"] as const).map(t => (
+      <div className="flex gap-2 flex-wrap animate-fade-in-up">
+        {(["balance", "market", "orders", "portfolio"] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-3 py-1 font-mono text-xs rounded-none border transition-all ${tab === t ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
-            {t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
+            className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${tab === t ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
+            {t === "balance" ? "💰 БАЛАНС" : t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
           </button>
         ))}
       </div>
 
-      {/* РЫНОК */}
+      {/* ═══ БАЛАНС ═══ */}
+      {tab === "balance" && (
+        <div className="space-y-4 animate-fade-in-up">
+
+          {/* Главная карточка — итоговый баланс */}
+          <div className="cyber-card-glow rounded-none p-5 text-center">
+            <div className="section-label mb-1">ОБЩИЙ БАЛАНС СЧЁТА</div>
+            <div className="font-orbitron text-4xl font-black neon-text-cyan mb-1">
+              {TBANK_BALANCE.total.toLocaleString("ru-RU")} ₽
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className="font-mono text-sm profit font-semibold">
+                +{TBANK_BALANCE.profit_total.toLocaleString("ru-RU")} ₽
+              </span>
+              <span className="section-label">·</span>
+              <span className="font-mono text-sm neon-text font-semibold">
+                +{TBANK_BALANCE.profit_pct}% за всё время
+              </span>
+            </div>
+          </div>
+
+          {/* 4 ключевые метрики */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Свободно (остаток)", val: `${TBANK_BALANCE.free.toLocaleString("ru-RU")} ₽`, sub: "Доступно для новых сделок", icon: "Wallet", color: "neon-text-cyan" },
+              { label: "Вложено в активы", val: `${TBANK_BALANCE.invested.toLocaleString("ru-RU")} ₽`, sub: "Текущая стоимость позиций", icon: "TrendingUp", color: "text-[var(--cyber-yellow)]" },
+              { label: "Потрачено на покупки", val: `${TBANK_BALANCE.spent_total.toLocaleString("ru-RU")} ₽`, sub: "Всего потрачено ботом", icon: "ArrowUpRight", color: "text-[var(--cyber-text-dim)]" },
+              { label: "Комиссии биржи", val: `${TBANK_BALANCE.commission_total.toLocaleString("ru-RU")} ₽`, sub: "Итого уплачено комиссий", icon: "Receipt", color: "text-[var(--cyber-red)]" },
+            ].map((m, i) => (
+              <div key={m.label} className="cyber-card rounded-none p-4 animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+                <div className="flex items-start justify-between mb-2">
+                  <div className="section-label text-[10px]">{m.label}</div>
+                  <Icon name={m.icon} size={14} className={m.color} />
+                </div>
+                <div className={`font-orbitron text-lg font-bold ${m.color}`}>{m.val}</div>
+                <div className="section-label text-[10px] mt-1">{m.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Прибыль по периодам */}
+          <div className="cyber-card rounded-none p-4">
+            <div className="section-label mb-3">ПРИБЫЛЬ ПО ПЕРИОДАМ</div>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Сегодня", val: TBANK_BALANCE.profit_today, color: "neon-text" },
+                { label: "Неделя", val: TBANK_BALANCE.profit_week, color: "neon-text" },
+                { label: "Всё время", val: TBANK_BALANCE.profit_total, color: "neon-text-cyan" },
+              ].map(p => (
+                <div key={p.label} className="text-center py-2 border border-[var(--cyber-border)] rounded-none">
+                  <div className={`font-orbitron text-base font-bold ${p.val >= 0 ? p.color : "loss"}`}>
+                    {p.val >= 0 ? "+" : ""}{p.val.toLocaleString("ru-RU")} ₽
+                  </div>
+                  <div className="section-label mt-0.5">{p.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Статистика торговли */}
+          <div className="cyber-card rounded-none p-4">
+            <div className="section-label mb-3">СТАТИСТИКА ТОРГОВЛИ БОТА</div>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="text-center">
+                <div className="font-orbitron text-xl font-bold neon-text-cyan">{TBANK_BALANCE.trades_total}</div>
+                <div className="section-label mt-0.5">Всего сделок</div>
+              </div>
+              <div className="text-center">
+                <div className="font-orbitron text-xl font-bold neon-text">{TBANK_BALANCE.trades_win}</div>
+                <div className="section-label mt-0.5">Прибыльных</div>
+              </div>
+              <div className="text-center">
+                <div className="font-orbitron text-xl font-bold text-[var(--cyber-red)]">{TBANK_BALANCE.trades_loss}</div>
+                <div className="section-label mt-0.5">Убыточных</div>
+              </div>
+            </div>
+            {/* Прогресс-бар винрейта */}
+            <div className="mb-1 flex justify-between">
+              <span className="section-label">Винрейт бота</span>
+              <span className="font-mono text-xs neon-text font-semibold">
+                {Math.round(TBANK_BALANCE.trades_win / TBANK_BALANCE.trades_total * 100)}%
+              </span>
+            </div>
+            <div className="cyber-progress">
+              <div className="cyber-progress-bar" style={{ width: `${Math.round(TBANK_BALANCE.trades_win / TBANK_BALANCE.trades_total * 100)}%` }} />
+            </div>
+          </div>
+
+          {/* Мини-график P&L по дням */}
+          <div className="cyber-card rounded-none p-4">
+            <div className="section-label mb-3">ДНЕВНОЙ P&L — ПОСЛЕДНИЕ 7 ДНЕЙ</div>
+            <div className="flex items-end gap-1.5 h-24">
+              {TBANK_DAILY.map((d, i) => {
+                const h = Math.round(Math.abs(d.pnl) / maxDaily * 100);
+                return (
+                  <div key={d.day} className="flex-1 flex flex-col items-center gap-1 animate-fade-in-up" style={{ animationDelay: `${i * 50}ms`, opacity: 0 }}>
+                    <div className="font-mono text-[9px] text-center" style={{ color: d.pnl >= 0 ? "var(--cyber-green)" : "var(--cyber-red)" }}>
+                      {d.pnl >= 0 ? "+" : ""}{(d.pnl / 1000).toFixed(1)}к
+                    </div>
+                    <div className="w-full rounded-none transition-all" style={{
+                      height: `${Math.max(h * 0.64, 4)}px`,
+                      background: d.pnl >= 0
+                        ? "linear-gradient(to top, var(--cyber-green), rgba(0,255,136,0.4))"
+                        : "linear-gradient(to top, var(--cyber-red), rgba(255,61,113,0.4))",
+                      boxShadow: d.pnl >= 0 ? "0 0 6px rgba(0,255,136,0.4)" : "0 0 6px rgba(255,61,113,0.4)"
+                    }} />
+                    <div className="font-mono text-[8px] text-[var(--cyber-text-dim)] text-center">{d.day.split(" ")[0]}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* ═══ РЫНОК ═══ */}
       {tab === "market" && (
         <div className="space-y-3 animate-fade-in-up">
           <div className="flex gap-2 flex-wrap">
@@ -884,39 +1013,53 @@ function TBankPage() {
         </div>
       )}
 
-      {/* СДЕЛКИ */}
+      {/* ═══ СДЕЛКИ ═══ */}
       {tab === "orders" && (
-        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
-          <div className="section-label mb-3">ИСТОРИЯ СДЕЛОК Т-БАНК</div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[var(--cyber-border)]">
-                  {["ID", "Тикер", "Тип", "Направление", "Лотов", "Цена", "P&L", "Статус"].map(h => (
-                    <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {TBANK_ORDERS.map((o, i) => (
-                  <tr key={o.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,212,255,0.03)] animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.id}</td>
-                    <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4 font-semibold">{o.ticker}</td>
-                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.type}</td>
-                    <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.dir === "BUY" ? "profit" : "loss"}`}>{o.dir === "BUY" ? "ПОКУПКА" : "ПРОДАЖА"}</td>
-                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.lots}</td>
-                    <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.price.toLocaleString("ru-RU")} ₽</td>
-                    <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.pnl >= 0 ? "profit" : "loss"}`}>{o.pnl >= 0 ? "+" : ""}{o.pnl} ₽</td>
-                    <td className="font-mono text-xs text-[var(--cyber-green)] py-2 pr-4">{o.status}</td>
+        <div className="space-y-3 animate-fade-in-up">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Сделок", val: String(TBANK_ORDERS.length), color: "neon-text-cyan" },
+              { label: "P&L итого", val: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(0)} ₽`, color: totalPnl >= 0 ? "profit" : "loss" },
+              { label: "Прибыльных", val: `${Math.round(wins / TBANK_ORDERS.length * 100)}%`, color: "neon-text" },
+            ].map(s => (
+              <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
+                <div className={`font-orbitron text-lg font-bold ${s.color}`}>{s.val}</div>
+                <div className="section-label mt-0.5">{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="cyber-card rounded-none p-4">
+            <div className="section-label mb-3">ИСТОРИЯ СДЕЛОК Т-БАНК</div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[var(--cyber-border)]">
+                    {["ID", "Тикер", "Тип", "Направление", "Лотов", "Цена", "P&L", "Статус"].map(h => (
+                      <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {TBANK_ORDERS.map((o, i) => (
+                    <tr key={o.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,212,255,0.03)] animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.id}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4 font-semibold">{o.ticker}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.type}</td>
+                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.dir === "BUY" ? "profit" : "loss"}`}>{o.dir === "BUY" ? "ПОКУПКА" : "ПРОДАЖА"}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.lots}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.price.toLocaleString("ru-RU")} ₽</td>
+                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.pnl >= 0 ? "profit" : "loss"}`}>{o.pnl >= 0 ? "+" : ""}{o.pnl} ₽</td>
+                      <td className="font-mono text-xs text-[var(--cyber-green)] py-2 pr-4">{o.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ПОРТФЕЛЬ */}
+      {/* ═══ ПОРТФЕЛЬ ═══ */}
       {tab === "portfolio" && (
         <div className="space-y-3 animate-fade-in-up">
           {[
@@ -938,6 +1081,7 @@ function TBankPage() {
           ))}
         </div>
       )}
+
     </div>
   );
 }
