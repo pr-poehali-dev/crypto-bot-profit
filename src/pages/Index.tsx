@@ -761,45 +761,50 @@ const TBANK_ORDERS = [
   { id: "TB-1018", ticker: "Si-9.24", type: "Фьючерс", dir: "SELL", lots: 1, price: 89800, status: "Исполнен", pnl: -260.0 },
 ];
 
-// Демо-данные для баланса (до подключения реального токена)
-const TBANK_BALANCE = {
-  total: 187_430,
-  free: 42_180,
-  invested: 145_250,
-  profit_total: 16_840,
-  profit_today: 1_255,
-  profit_week: 4_320,
-  spent_total: 145_250,
-  withdrawn: 0,
-  commission_total: 2_134,
-  profit_pct: 11.6,
-  trades_total: 47,
-  trades_win: 38,
-  trades_loss: 9,
-};
-
-const TBANK_DAILY = [
-  { day: "18 мая", pnl: 320, trades: 5 },
-  { day: "19 мая", pnl: -180, trades: 3 },
-  { day: "20 мая", pnl: 870, trades: 8 },
-  { day: "21 мая", pnl: 430, trades: 6 },
-  { day: "22 мая", pnl: 1100, trades: 9 },
-  { day: "23 мая", pnl: 755, trades: 7 },
-  { day: "24 мая", pnl: 1255, trades: 9 },
-];
+interface TBankBalance {
+  account_id: string;
+  total: number; free: number; invested: number;
+  expected_yield: number; profit_total: number;
+  profit_today: number; profit_week: number;
+  spent_total: number; commission_total: number;
+  profit_pct: number; trades_total: number;
+  trades_win: number; trades_loss: number;
+  positions: { figi: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
+  daily_chart: { day: string; date: string; pnl: number }[];
+}
 
 function TBankPage() {
   const [tab, setTab] = useState<"balance" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
   const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const [balance, setBalance] = useState<TBankBalance | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${TBANK_URL}?action=accounts`)
       .then(r => r.json())
-      .then(d => setHasToken(!d.error))
+      .then(d => {
+        const ok = Array.isArray(d) && d.length > 0;
+        setHasToken(ok);
+      })
       .catch(() => setHasToken(false));
   }, []);
+
+  useEffect(() => {
+    if (tab !== "balance") return;
+    setBalanceLoading(true);
+    setBalanceError(null);
+    fetch(`${TBANK_URL}?action=balance`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { setBalanceError(d.error); }
+        else { setBalance(d); }
+      })
+      .catch(() => setBalanceError("Ошибка соединения"))
+      .finally(() => setBalanceLoading(false));
+  }, [tab]);
 
   const filtered = TBANK_INSTRUMENTS.filter(i => {
     const matchSearch = search === "" || i.ticker.toLowerCase().includes(search.toLowerCase()) || i.name.toLowerCase().includes(search.toLowerCase());
@@ -809,7 +814,10 @@ function TBankPage() {
 
   const totalPnl = TBANK_ORDERS.reduce((a, b) => a + b.pnl, 0);
   const wins = TBANK_ORDERS.filter(o => o.pnl > 0).length;
-  const maxDaily = Math.max(...TBANK_DAILY.map(d => Math.abs(d.pnl)));
+
+  const bal = balance;
+  const dailyChart = bal?.daily_chart || [];
+  const maxDaily = dailyChart.length ? Math.max(...dailyChart.map(d => Math.abs(d.pnl))) || 1 : 1;
 
   return (
     <div className="space-y-4">
@@ -857,115 +865,133 @@ function TBankPage() {
       {tab === "balance" && (
         <div className="space-y-4 animate-fade-in-up">
 
-          {/* Главная карточка — итоговый баланс */}
-          <div className="cyber-card-glow rounded-none p-5 text-center">
-            <div className="section-label mb-1">ОБЩИЙ БАЛАНС СЧЁТА</div>
-            <div className="font-orbitron text-4xl font-black neon-text-cyan mb-1">
-              {TBANK_BALANCE.total.toLocaleString("ru-RU")} ₽
+          {balanceLoading && (
+            <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none">
+              <Spinner />
+              <span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю данные счёта...</span>
             </div>
-            <div className="flex items-center justify-center gap-2 mt-2">
-              <span className="font-mono text-sm profit font-semibold">
-                +{TBANK_BALANCE.profit_total.toLocaleString("ru-RU")} ₽
-              </span>
-              <span className="section-label">·</span>
-              <span className="font-mono text-sm neon-text font-semibold">
-                +{TBANK_BALANCE.profit_pct}% за всё время
-              </span>
-            </div>
-          </div>
+          )}
 
-          {/* 4 ключевые метрики */}
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: "Свободно (остаток)", val: `${TBANK_BALANCE.free.toLocaleString("ru-RU")} ₽`, sub: "Доступно для новых сделок", icon: "Wallet", color: "neon-text-cyan" },
-              { label: "Вложено в активы", val: `${TBANK_BALANCE.invested.toLocaleString("ru-RU")} ₽`, sub: "Текущая стоимость позиций", icon: "TrendingUp", color: "text-[var(--cyber-yellow)]" },
-              { label: "Потрачено на покупки", val: `${TBANK_BALANCE.spent_total.toLocaleString("ru-RU")} ₽`, sub: "Всего потрачено ботом", icon: "ArrowUpRight", color: "text-[var(--cyber-text-dim)]" },
-              { label: "Комиссии биржи", val: `${TBANK_BALANCE.commission_total.toLocaleString("ru-RU")} ₽`, sub: "Итого уплачено комиссий", icon: "Receipt", color: "text-[var(--cyber-red)]" },
-            ].map((m, i) => (
-              <div key={m.label} className="cyber-card rounded-none p-4 animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-                <div className="flex items-start justify-between mb-2">
-                  <div className="section-label text-[10px]">{m.label}</div>
-                  <Icon name={m.icon} size={14} className={m.color} />
+          {balanceError && !balanceLoading && (
+            <div className="cyber-card rounded-none p-4 border border-[var(--cyber-red)]">
+              <div className="font-mono text-xs text-[var(--cyber-red)]">Ошибка: {balanceError}</div>
+            </div>
+          )}
+
+          {bal && !balanceLoading && (
+            <>
+              {/* Главная карточка */}
+              <div className="cyber-card-glow rounded-none p-5 text-center">
+                <div className="section-label mb-1">ОБЩИЙ БАЛАНС СЧЁТА · БРОКЕРСКИЙ СЧЁТ 4</div>
+                <div className="font-orbitron text-4xl font-black neon-text-cyan mb-1">
+                  {bal.total.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
                 </div>
-                <div className={`font-orbitron text-lg font-bold ${m.color}`}>{m.val}</div>
-                <div className="section-label text-[10px] mt-1">{m.sub}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Прибыль по периодам */}
-          <div className="cyber-card rounded-none p-4">
-            <div className="section-label mb-3">ПРИБЫЛЬ ПО ПЕРИОДАМ</div>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: "Сегодня", val: TBANK_BALANCE.profit_today, color: "neon-text" },
-                { label: "Неделя", val: TBANK_BALANCE.profit_week, color: "neon-text" },
-                { label: "Всё время", val: TBANK_BALANCE.profit_total, color: "neon-text-cyan" },
-              ].map(p => (
-                <div key={p.label} className="text-center py-2 border border-[var(--cyber-border)] rounded-none">
-                  <div className={`font-orbitron text-base font-bold ${p.val >= 0 ? p.color : "loss"}`}>
-                    {p.val >= 0 ? "+" : ""}{p.val.toLocaleString("ru-RU")} ₽
-                  </div>
-                  <div className="section-label mt-0.5">{p.label}</div>
+                <div className="flex items-center justify-center gap-2 mt-2 flex-wrap">
+                  <span className={`font-mono text-sm font-semibold ${bal.expected_yield >= 0 ? "profit" : "loss"}`}>
+                    {bal.expected_yield >= 0 ? "+" : ""}{bal.expected_yield.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽ нереализованная
+                  </span>
+                  <span className="section-label">·</span>
+                  <span className={`font-mono text-sm font-semibold ${bal.profit_pct >= 0 ? "neon-text" : "loss"}`}>
+                    {bal.profit_pct >= 0 ? "+" : ""}{bal.profit_pct}% к вложенным
+                  </span>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
 
-          {/* Статистика торговли */}
-          <div className="cyber-card rounded-none p-4">
-            <div className="section-label mb-3">СТАТИСТИКА ТОРГОВЛИ БОТА</div>
-            <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="text-center">
-                <div className="font-orbitron text-xl font-bold neon-text-cyan">{TBANK_BALANCE.trades_total}</div>
-                <div className="section-label mt-0.5">Всего сделок</div>
-              </div>
-              <div className="text-center">
-                <div className="font-orbitron text-xl font-bold neon-text">{TBANK_BALANCE.trades_win}</div>
-                <div className="section-label mt-0.5">Прибыльных</div>
-              </div>
-              <div className="text-center">
-                <div className="font-orbitron text-xl font-bold text-[var(--cyber-red)]">{TBANK_BALANCE.trades_loss}</div>
-                <div className="section-label mt-0.5">Убыточных</div>
-              </div>
-            </div>
-            {/* Прогресс-бар винрейта */}
-            <div className="mb-1 flex justify-between">
-              <span className="section-label">Винрейт бота</span>
-              <span className="font-mono text-xs neon-text font-semibold">
-                {Math.round(TBANK_BALANCE.trades_win / TBANK_BALANCE.trades_total * 100)}%
-              </span>
-            </div>
-            <div className="cyber-progress">
-              <div className="cyber-progress-bar" style={{ width: `${Math.round(TBANK_BALANCE.trades_win / TBANK_BALANCE.trades_total * 100)}%` }} />
-            </div>
-          </div>
-
-          {/* Мини-график P&L по дням */}
-          <div className="cyber-card rounded-none p-4">
-            <div className="section-label mb-3">ДНЕВНОЙ P&L — ПОСЛЕДНИЕ 7 ДНЕЙ</div>
-            <div className="flex items-end gap-1.5 h-24">
-              {TBANK_DAILY.map((d, i) => {
-                const h = Math.round(Math.abs(d.pnl) / maxDaily * 100);
-                return (
-                  <div key={d.day} className="flex-1 flex flex-col items-center gap-1 animate-fade-in-up" style={{ animationDelay: `${i * 50}ms`, opacity: 0 }}>
-                    <div className="font-mono text-[9px] text-center" style={{ color: d.pnl >= 0 ? "var(--cyber-green)" : "var(--cyber-red)" }}>
-                      {d.pnl >= 0 ? "+" : ""}{(d.pnl / 1000).toFixed(1)}к
+              {/* 4 метрики */}
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Свободно (остаток)", val: `${bal.free.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`, sub: "Доступно для новых сделок", icon: "Wallet", color: "neon-text-cyan" },
+                  { label: "Вложено в активы", val: `${bal.invested.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`, sub: "Акции + ETF + Фьючерсы", icon: "TrendingUp", color: "text-[var(--cyber-yellow)]" },
+                  { label: "Потрачено на покупки", val: `${bal.spent_total.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`, sub: "За последние 30 дней", icon: "ArrowUpRight", color: "text-[var(--cyber-text-dim)]" },
+                  { label: "Комиссии биржи", val: `${bal.commission_total.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`, sub: "Итого уплачено комиссий", icon: "Receipt", color: "text-[var(--cyber-red)]" },
+                ].map((m, i) => (
+                  <div key={m.label} className="cyber-card rounded-none p-4 animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="section-label text-[10px]">{m.label}</div>
+                      <Icon name={m.icon} size={14} className={m.color} />
                     </div>
-                    <div className="w-full rounded-none transition-all" style={{
-                      height: `${Math.max(h * 0.64, 4)}px`,
-                      background: d.pnl >= 0
-                        ? "linear-gradient(to top, var(--cyber-green), rgba(0,255,136,0.4))"
-                        : "linear-gradient(to top, var(--cyber-red), rgba(255,61,113,0.4))",
-                      boxShadow: d.pnl >= 0 ? "0 0 6px rgba(0,255,136,0.4)" : "0 0 6px rgba(255,61,113,0.4)"
-                    }} />
-                    <div className="font-mono text-[8px] text-[var(--cyber-text-dim)] text-center">{d.day.split(" ")[0]}</div>
+                    <div className={`font-orbitron text-lg font-bold ${m.color}`}>{m.val}</div>
+                    <div className="section-label text-[10px] mt-1">{m.sub}</div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                ))}
+              </div>
 
+              {/* Прибыль по периодам */}
+              <div className="cyber-card rounded-none p-4">
+                <div className="section-label mb-3">РЕАЛИЗОВАННАЯ ПРИБЫЛЬ ПО ПЕРИОДАМ</div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: "Сегодня", val: bal.profit_today },
+                    { label: "Неделя", val: bal.profit_week },
+                    { label: "30 дней", val: bal.profit_total },
+                  ].map(p => (
+                    <div key={p.label} className="text-center py-2 border border-[var(--cyber-border)] rounded-none">
+                      <div className={`font-orbitron text-base font-bold ${p.val >= 0 ? "neon-text" : "loss"}`}>
+                        {p.val >= 0 ? "+" : ""}{p.val.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+                      </div>
+                      <div className="section-label mt-0.5">{p.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Статистика сделок */}
+              <div className="cyber-card rounded-none p-4">
+                <div className="section-label mb-3">СТАТИСТИКА СДЕЛОК (30 ДНЕЙ)</div>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="text-center">
+                    <div className="font-orbitron text-xl font-bold neon-text-cyan">{bal.trades_total}</div>
+                    <div className="section-label mt-0.5">Всего сделок</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-orbitron text-xl font-bold neon-text">{bal.trades_win}</div>
+                    <div className="section-label mt-0.5">Прибыльных</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-orbitron text-xl font-bold text-[var(--cyber-red)]">{bal.trades_loss}</div>
+                    <div className="section-label mt-0.5">Убыточных</div>
+                  </div>
+                </div>
+                <div className="mb-1 flex justify-between">
+                  <span className="section-label">Винрейт</span>
+                  <span className="font-mono text-xs neon-text font-semibold">
+                    {bal.trades_total > 0 ? Math.round(bal.trades_win / bal.trades_total * 100) : 0}%
+                  </span>
+                </div>
+                <div className="cyber-progress">
+                  <div className="cyber-progress-bar" style={{ width: `${bal.trades_total > 0 ? Math.round(bal.trades_win / bal.trades_total * 100) : 0}%` }} />
+                </div>
+              </div>
+
+              {/* График P&L по дням */}
+              {dailyChart.length > 0 && (
+                <div className="cyber-card rounded-none p-4">
+                  <div className="section-label mb-3">ДНЕВНОЙ P&L — ПОСЛЕДНИЕ 7 ДНЕЙ</div>
+                  <div className="flex items-end gap-1.5 h-24">
+                    {dailyChart.map((d, i) => {
+                      const h = maxDaily > 0 ? Math.round(Math.abs(d.pnl) / maxDaily * 100) : 0;
+                      return (
+                        <div key={d.date} className="flex-1 flex flex-col items-center gap-1 animate-fade-in-up" style={{ animationDelay: `${i * 50}ms`, opacity: 0 }}>
+                          <div className="font-mono text-[9px] text-center" style={{ color: d.pnl >= 0 ? "var(--cyber-green)" : "var(--cyber-red)" }}>
+                            {d.pnl !== 0 ? `${d.pnl >= 0 ? "+" : ""}${(d.pnl / 1000).toFixed(1)}к` : "—"}
+                          </div>
+                          <div className="w-full rounded-none transition-all" style={{
+                            height: `${Math.max(h * 0.64, 4)}px`,
+                            background: d.pnl >= 0
+                              ? "linear-gradient(to top, var(--cyber-green), rgba(0,255,136,0.4))"
+                              : "linear-gradient(to top, var(--cyber-red), rgba(255,61,113,0.4))",
+                            boxShadow: d.pnl >= 0 ? "0 0 6px rgba(0,255,136,0.4)" : "0 0 6px rgba(255,61,113,0.4)",
+                            opacity: d.pnl === 0 ? 0.2 : 1,
+                          }} />
+                          <div className="font-mono text-[8px] text-[var(--cyber-text-dim)] text-center">{d.day}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
