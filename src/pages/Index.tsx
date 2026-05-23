@@ -5,12 +5,14 @@ const MARKET_URL = "https://functions.poehali.dev/66dbea62-7575-4dac-8ab1-f42bce
 const PAYMENT_URL = "https://functions.poehali.dev/373f750f-9364-43a8-8020-4f3f2cda099f";
 const TRADE_URL = "https://functions.poehali.dev/5af36d81-ec5d-4557-996a-036e428dad76";
 const TBANK_URL = "https://functions.poehali.dev/fb80b07e-125f-40dc-8244-d902c6b0731a";
+const AUTOTRADER_URL = "https://functions.poehali.dev/f372165e-74bb-42e7-9a58-5830d08d29fb";
 
 const NAV_ITEMS = [
   { id: "dashboard", icon: "LayoutDashboard", label: "Дашборд" },
   { id: "trading", icon: "TrendingUp", label: "Торговля" },
   { id: "strategies", icon: "Brain", label: "Стратегии" },
   { id: "tbank", icon: "Building2", label: "Т-Банк" },
+  { id: "autobot", icon: "Bot", label: "Автобот" },
   { id: "wallet", icon: "Wallet", label: "Кошелёк" },
   { id: "history", icon: "History", label: "История" },
   { id: "portfolio", icon: "PieChart", label: "Портфель" },
@@ -1112,6 +1114,215 @@ function TBankPage() {
   );
 }
 
+/* ===== AUTOBOT ===== */
+interface BotStatus {
+  enabled: boolean;
+  mode: string;
+  fixed_amount: number;
+  stop_pct: number;
+  last_run: string;
+  last_trades: { ticker: string; signal: string; lots?: number; price?: number; total?: number; status?: string; rsi?: number; reason?: string }[];
+  daily_pnl: number;
+}
+
+function AutoBotPage() {
+  const [status, setStatus] = useState<BotStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const [mode, setMode] = useState("10pct");
+  const [fixedAmount, setFixedAmount] = useState("5000");
+  const [enabled, setEnabled] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${AUTOTRADER_URL}?action=status`);
+      const d: BotStatus = await r.json();
+      setStatus(d);
+      setMode(d.mode);
+      setFixedAmount(String(d.fixed_amount));
+      setEnabled(d.enabled);
+    } catch { /* skip */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const saveSettings = async (newEnabled?: boolean) => {
+    setSaving(true);
+    const isEnabled = newEnabled !== undefined ? newEnabled : enabled;
+    try {
+      const r = await fetch(AUTOTRADER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount), stop_pct: 3, enabled: isEnabled }),
+      });
+      const d = await r.json();
+      if (d.success) { setMsg({ text: "Настройки сохранены", ok: true }); setEnabled(isEnabled); loadStatus(); }
+      else setMsg({ text: d.error || "Ошибка", ok: false });
+    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
+    setSaving(false);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  const runOnce = async () => {
+    setRunning(true);
+    setMsg(null);
+    try {
+      const r = await fetch(AUTOTRADER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run_once" }),
+      });
+      const d = await r.json();
+      if (d.stopped) setMsg({ text: `Стоп: ${d.reason}`, ok: false });
+      else if (d.success) setMsg({ text: `Цикл завершён · Свободно: ${d.free_cash?.toLocaleString("ru-RU")} ₽ · Сумма сделки: ${d.order_amount?.toLocaleString("ru-RU")} ₽`, ok: true });
+      else setMsg({ text: d.error || "Ошибка", ok: false });
+      loadStatus();
+    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
+    setRunning(false);
+  };
+
+  const MODES = [
+    { id: "10pct", label: "10% от остатка", desc: "Безопасный режим — до 10 параллельных позиций" },
+    { id: "25pct", label: "25% от остатка", desc: "Умеренный — до 4 позиций одновременно" },
+    { id: "50pct", label: "50% от остатка", desc: "Агрессивный — максимум 2 крупные позиции" },
+    { id: "fixed", label: "Фиксированная сумма", desc: "Задаёшь точную сумму в рублях на сделку" },
+  ];
+
+  if (loading) return <div className="flex items-center justify-center p-20"><Spinner /></div>;
+
+  return (
+    <div className="space-y-4">
+
+      {/* Шапка со статусом */}
+      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
+            <Icon name="Bot" size={16} className="neon-text" />
+            АВТОМАТИЧЕСКИЙ ТОРГОВЫЙ БОТ
+          </div>
+          <div className="section-label mt-0.5">Т-Банк Invest · RSI + EMA стратегии</div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${enabled ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${enabled ? "bg-[var(--cyber-green)] animate-pulse" : "bg-[var(--cyber-text-dim)]"}`} />
+            {enabled ? "АКТИВЕН" : "ОСТАНОВЛЕН"}
+          </div>
+          <button
+            onClick={() => saveSettings(!enabled)}
+            className={`px-4 py-1.5 font-mono text-xs rounded-none border transition-all ${enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]"}`}>
+            {enabled ? "ОСТАНОВИТЬ" : "ЗАПУСТИТЬ"}
+          </button>
+        </div>
+      </div>
+
+      {/* Уведомление */}
+      {msg && (
+        <div className={`cyber-card rounded-none p-3 border font-mono text-xs animate-fade-in-up ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Ключевые метрики */}
+      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
+        {[
+          { label: "Дневной P&L", val: `${(status?.daily_pnl ?? 0) >= 0 ? "+" : ""}${(status?.daily_pnl ?? 0).toLocaleString("ru-RU")} ₽`, color: (status?.daily_pnl ?? 0) >= 0 ? "neon-text" : "loss" },
+          { label: "Последний запуск", val: status?.last_run || "—", color: "neon-text-cyan" },
+          { label: "Защита стоп", val: "−3% баланса", color: "text-[var(--cyber-yellow)]" },
+        ].map(s => (
+          <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
+            <div className={`font-mono text-sm font-bold ${s.color}`}>{s.val}</div>
+            <div className="section-label mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Настройки суммы на сделку */}
+      <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+        <div className="section-label mb-3">РЕЖИМ ТОРГОВЛИ — СУММА НА ОДНУ СДЕЛКУ</div>
+        <div className="grid grid-cols-1 gap-2 mb-3">
+          {MODES.map(m => (
+            <button key={m.id} onClick={() => setMode(m.id)}
+              className={`text-left p-3 border rounded-none transition-all ${mode === m.id ? "border-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.06)]" : "border-[var(--cyber-border)] hover:border-[var(--cyber-cyan)]"}`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full border ${mode === m.id ? "bg-[var(--cyber-cyan)] border-[var(--cyber-cyan)]" : "border-[var(--cyber-text-dim)]"}`} />
+                <span className={`font-mono text-xs font-semibold ${mode === m.id ? "neon-text-cyan" : "text-[var(--cyber-text)]"}`}>{m.label}</span>
+              </div>
+              <div className="section-label text-[10px] mt-1 ml-4">{m.desc}</div>
+            </button>
+          ))}
+        </div>
+        {mode === "fixed" && (
+          <div className="flex items-center gap-2 mb-3">
+            <span className="section-label shrink-0">Сумма ₽:</span>
+            <input
+              value={fixedAmount}
+              onChange={e => setFixedAmount(e.target.value)}
+              type="number"
+              min="100"
+              className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-1.5 rounded-none outline-none focus:border-[var(--cyber-cyan)]"
+            />
+          </div>
+        )}
+        <button onClick={() => saveSettings()}
+          disabled={saving}
+          className="w-full py-2 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+          {saving ? <><Spinner /><span>СОХРАНЕНИЕ...</span></> : "СОХРАНИТЬ НАСТРОЙКИ"}
+        </button>
+      </div>
+
+      {/* Ручной запуск */}
+      <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+        <div className="section-label mb-2">РУЧНОЙ ЗАПУСК ОДНОГО ЦИКЛА</div>
+        <div className="text-[11px] text-[var(--cyber-text-dim)] mb-3">Бот проверит сигналы RSI + EMA по всем инструментам и выполнит ордера прямо сейчас</div>
+        <button onClick={runOnce} disabled={running}
+          className="w-full py-2.5 font-orbitron text-xs font-bold border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+          {running ? <><Spinner /><span>ТОРГУЮ...</span></> : "▶ ЗАПУСТИТЬ ЦИКЛ СЕЙЧАС"}
+        </button>
+      </div>
+
+      {/* Последние сигналы */}
+      {status?.last_trades && status.last_trades.length > 0 && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-3">ПОСЛЕДНИЕ СИГНАЛЫ</div>
+          <div className="space-y-2">
+            {status.last_trades.map((t, i) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b border-[rgba(26,58,74,0.4)]">
+                <div className="flex items-center gap-3">
+                  <div className={`px-2 py-0.5 font-mono text-[10px] font-bold rounded-none ${t.signal === "BUY" ? "bg-[rgba(0,255,136,0.15)] text-[var(--cyber-green)]" : t.signal === "SELL" ? "bg-[rgba(255,61,113,0.15)] text-[var(--cyber-red)]" : "bg-[rgba(26,58,74,0.5)] text-[var(--cyber-text-dim)]"}`}>
+                    {t.signal}
+                  </div>
+                  <span className="font-mono text-sm font-semibold text-[var(--cyber-text)]">{t.ticker}</span>
+                  {t.rsi && <span className="section-label">RSI {t.rsi}</span>}
+                </div>
+                <div className="text-right">
+                  {t.total ? <div className="font-mono text-xs text-[var(--cyber-text)]">{t.total.toLocaleString("ru-RU")} ₽ · {t.lots} лот</div> : null}
+                  {t.reason ? <div className="section-label text-[10px]">{t.reason}</div> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Защита */}
+      <div className="cyber-card rounded-none p-3 border border-[rgba(255,61,113,0.2)] animate-fade-in-up">
+        <div className="flex items-start gap-2">
+          <Icon name="Shield" size={14} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
+          <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+            <span className="text-[var(--cyber-yellow)] font-semibold">Защита активна: </span>
+            при дневном убытке более <span className="text-[var(--cyber-red)]">3%</span> баланса бот автоматически останавливается и прекращает все сделки до следующего дня.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
 /* ===== HISTORY ===== */
 function HistoryPage() {
   return (
@@ -1495,6 +1706,7 @@ export default function Index() {
       case "trading": return <TradingPage />;
       case "strategies": return <StrategiesPage />;
       case "tbank": return <TBankPage />;
+      case "autobot": return <AutoBotPage />;
       case "wallet": return <WalletPage />;
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;

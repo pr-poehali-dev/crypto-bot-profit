@@ -1,0 +1,18 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "GET status",
+      "method": "GET",
+      "path": "/?action=status",
+      "expectedStatus": 200,
+      "expectedBody": {"enabled": false},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
