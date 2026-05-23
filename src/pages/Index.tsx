@@ -778,7 +778,7 @@ interface TBankBalance {
 interface BotTrade { ticker: string; signal: string; lots?: number; price?: number; total?: number; status?: string; rsi?: number; reason?: string; }
 interface AutoBotStatusLight { enabled: boolean; mode: string; fixed_amount: number; last_run: string; last_trades: BotTrade[]; daily_pnl: number; }
 
-function TBankPage() {
+function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
   const [tab, setTab] = useState<"balance" | "autobot" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
@@ -797,16 +797,28 @@ function TBankPage() {
       .catch(() => setHasToken(false));
   }, []);
 
-  useEffect(() => {
-    if (tab !== "balance") return;
-    setBalanceLoading(true);
+  const fetchBalance = useCallback(() => {
     setBalanceError(null);
     fetch(`${TBANK_URL}?action=balance`)
       .then(r => r.json())
       .then(d => { if (d.error) setBalanceError(d.error); else setBalance(d); })
       .catch(() => setBalanceError("Ошибка соединения"))
       .finally(() => setBalanceLoading(false));
-  }, [tab]);
+  }, []);
+
+  // Загрузка при открытии вкладки или после цикла бота (refreshKey)
+  useEffect(() => {
+    if (tab !== "balance") return;
+    setBalanceLoading(true);
+    fetchBalance();
+  }, [tab, fetchBalance, refreshKey]);
+
+  // Авто-обновление каждые 30 сек пока открыта вкладка баланса
+  useEffect(() => {
+    if (tab !== "balance") return;
+    const t = setInterval(fetchBalance, 30000);
+    return () => clearInterval(t);
+  }, [tab, fetchBalance]);
 
   useEffect(() => {
     if (tab !== "autobot") return;
@@ -863,9 +875,18 @@ function TBankPage() {
           </div>
           <div className="section-label mt-0.5">Акции · ETF · Фьючерсы · Фонды</div>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${hasToken === true ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : hasToken === false ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${hasToken === true ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-red)]"}`} />
-          {hasToken === true ? "ПОДКЛЮЧЁН" : hasToken === false ? "НЕТ ТОКЕНА" : "ПРОВЕРКА..."}
+        <div className="flex items-center gap-2">
+          {tab === "balance" && (
+            <button onClick={() => { setBalanceLoading(true); fetchBalance(); }}
+              className="px-2 py-1.5 border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] hover:text-[var(--cyber-cyan)] rounded-none transition-all flex items-center gap-1 font-mono text-xs">
+              <Icon name="RefreshCw" size={11} />
+              Обновить
+            </button>
+          )}
+          <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${hasToken === true ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : hasToken === false ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${hasToken === true ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-red)]"}`} />
+            {hasToken === true ? "ПОДКЛЮЧЁН" : hasToken === false ? "НЕТ ТОКЕНА" : "ПРОВЕРКА..."}
+          </div>
         </div>
       </div>
 
@@ -1945,6 +1966,9 @@ export default function Index() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [time, setTime] = useState(new Date());
 
+  // Счётчик для принудительного обновления баланса Т-Банк
+  const [balanceRefreshKey, setBalanceRefreshKey] = useState(0);
+
   // Глобальный планировщик — живёт вне AutoBotPage
   const [botEnabled, setBotEnabled] = useState(false);
   const [botIntervalMin, setBotIntervalMin] = useState(30);
@@ -1995,6 +2019,7 @@ export default function Index() {
       }
     } catch { setBotLastMsg({ text: "Ошибка соединения", ok: false }); }
     setBotRunning2(false);
+    setBalanceRefreshKey(k => k + 1); // обновить баланс после цикла
     setTimeout(() => setBotLastMsg(null), 6000);
   }, [botRunning2, botCycleCount]);
 
@@ -2008,7 +2033,7 @@ export default function Index() {
       case "dashboard": return <DashboardPage botRunning={botRunning} setBotRunning={setBotRunning} />;
       case "trading": return <TradingPage />;
       case "strategies": return <StrategiesPage />;
-      case "tbank": return <TBankPage />;
+      case "tbank": return <TBankPage refreshKey={balanceRefreshKey} />;
       case "autobot": return <AutoBotPage
         botEnabled={botEnabled} setBotEnabled={setBotEnabled}
         botIntervalMin={botIntervalMin} setBotIntervalMin={setBotIntervalMin}
