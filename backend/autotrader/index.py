@@ -75,43 +75,53 @@ def get_prices(figi):
     return [money(c.get("close")) for c in d.get("candles", []) if c.get("isComplete")]
 
 def get_all_shares():
-    """Получить все доступные акции и ETF из Т-Банк (ликвидные, торгуемые)."""
+    """Получить все рублёвые акции и ETF Мосбиржи из Т-Банк."""
     cached = db_get("watchlist_cache")
     cached_at = db_get("watchlist_cached_at")
-    # Кэш на 24 часа
+    # Кэш 6 часов, но только если там рублёвые инструменты
     if cached and cached_at:
         try:
             cached_time = datetime.fromisoformat(cached_at)
-            if (datetime.now(timezone.utc) - cached_time).total_seconds() < 86400:
-                return json.loads(cached)
+            items = json.loads(cached)
+            rub_count = sum(1 for i in items if i.get("currency") == "rub")
+            if (datetime.now(timezone.utc) - cached_time).total_seconds() < 21600 and rub_count > 10:
+                return items
         except: pass
 
     instruments = []
-    # Акции Мосбиржи
-    for kind in ["INSTRUMENT_TYPE_SHARE", "INSTRUMENT_TYPE_ETF"]:
-        data = tb("tinkoff.public.invest.api.contract.v1.InstrumentsService/Shares", {
-            "instrumentStatus": "INSTRUMENT_STATUS_BASE"
-        }) if kind == "INSTRUMENT_TYPE_SHARE" else tb(
-            "tinkoff.public.invest.api.contract.v1.InstrumentsService/Etfs", {
-                "instrumentStatus": "INSTRUMENT_STATUS_BASE"
-            }
-        )
-        key = "instruments" if kind == "INSTRUMENT_TYPE_SHARE" else "etfs"
-        for i in data.get(key, []):
-            # Только торгуемые на бирже, рублёвые или долларовые
-            if not i.get("apiTradeAvailableFlag"): continue
-            if i.get("currency") not in ("rub", "usd"): continue
-            if i.get("lot", 0) <= 0: continue
-            instruments.append({
-                "figi": i.get("figi"),
-                "ticker": i.get("ticker"),
-                "name": i.get("name"),
-                "lot": i.get("lot", 1),
-                "currency": i.get("currency"),
-                "type": "ETF" if kind == "INSTRUMENT_TYPE_ETF" else "Акция",
-            })
+    # Акции
+    data = tb("tinkoff.public.invest.api.contract.v1.InstrumentsService/Shares", {
+        "instrumentStatus": "INSTRUMENT_STATUS_BASE"
+    })
+    for i in data.get("instruments", []):
+        if not i.get("apiTradeAvailableFlag"): continue
+        if i.get("currency") != "rub": continue  # ТОЛЬКО РУБЛЁВЫЕ
+        if i.get("lot", 0) <= 0: continue
+        instruments.append({
+            "figi": i.get("figi"),
+            "ticker": i.get("ticker"),
+            "name": i.get("name"),
+            "lot": i.get("lot", 1),
+            "currency": "rub",
+            "type": "Акция",
+        })
+    # ETF
+    data_etf = tb("tinkoff.public.invest.api.contract.v1.InstrumentsService/Etfs", {
+        "instrumentStatus": "INSTRUMENT_STATUS_BASE"
+    })
+    for i in data_etf.get("etfs", []):
+        if not i.get("apiTradeAvailableFlag"): continue
+        if i.get("currency") != "rub": continue  # ТОЛЬКО РУБЛЁВЫЕ
+        if i.get("lot", 0) <= 0: continue
+        instruments.append({
+            "figi": i.get("figi"),
+            "ticker": i.get("ticker"),
+            "name": i.get("name"),
+            "lot": i.get("lot", 1),
+            "currency": "rub",
+            "type": "ETF",
+        })
 
-    # Кэшируем результат
     db_set("watchlist_cache", json.dumps(instruments, ensure_ascii=False))
     db_set("watchlist_cached_at", datetime.now(timezone.utc).isoformat())
     return instruments
@@ -235,7 +245,14 @@ def handler(event: dict, context) -> dict:
             elif mode == "50pct": order_amt = free_cash * 0.50
             else:                 order_amt = min(fixed_amount, free_cash * 0.90)
 
-            # Загружаем список всех инструментов
+            # Если денег мало — используем всё что есть (минимум 100 ₽)
+            if order_amt < 100:
+                order_amt = free_cash * 0.90
+            if free_cash < 100:
+                db_set("bot_last_trades", json.dumps([{"ticker": "—", "signal": "SKIP", "reason": f"Недостаточно средств: {free_cash:.0f} ₽ (нужно минимум 100 ₽)"}], ensure_ascii=False))
+                return resp({"success": False, "reason": f"Недостаточно средств: {free_cash:.0f} ₽", "free_cash": free_cash})
+
+            # Загружаем список всех рублёвых инструментов
             watchlist = get_all_shares()
 
             results = []
