@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 
 const MARKET_URL = "https://functions.poehali.dev/66dbea62-7575-4dac-8ab1-f42bce82db7b";
@@ -1306,19 +1306,37 @@ const INTERVALS = [
   { val: 60,  label: "1 час" },
 ];
 
-function AutoBotPage() {
+interface AutoBotPageProps {
+  botEnabled: boolean; setBotEnabled: (v: boolean) => void;
+  botIntervalMin: number; setBotIntervalMin: (v: number) => void;
+  botCountdown: number; setBotCountdown: (v: number) => void;
+  botCycleCount: number; setBotCycleCount: (v: number) => void;
+  botRunning: boolean; triggerBotCycle: () => void;
+  botLastMsg: { text: string; ok: boolean } | null;
+  setBotLastMsg: (v: { text: string; ok: boolean } | null) => void;
+}
+
+function AutoBotPage({
+  botEnabled, setBotEnabled,
+  botIntervalMin, setBotIntervalMin,
+  botCountdown, setBotCountdown,
+  botCycleCount, setBotCycleCount,
+  botRunning: running, triggerBotCycle,
+  botLastMsg: msg, setBotLastMsg: setMsg,
+}: AutoBotPageProps) {
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const [mode, setMode] = useState("10pct");
   const [fixedAmount, setFixedAmount] = useState("5000");
-  const [enabled, setEnabled] = useState(false);
-  const [intervalMin, setIntervalMin] = useState(30);
-  const [countdown, setCountdown] = useState(0);
-  const [cycleCount, setCycleCount] = useState(0);
+  const enabled = botEnabled;
+  const setEnabled = setBotEnabled;
+  const intervalMin = botIntervalMin;
+  const setIntervalMin = setBotIntervalMin;
+  const countdown = botCountdown;
+  const cycleCount = botCycleCount;
+  const cycleRef2 = useRef(0);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -1327,68 +1345,23 @@ function AutoBotPage() {
       setStatus(d);
       setMode(d.mode);
       setFixedAmount(String(d.fixed_amount));
-      setEnabled(d.enabled);
     } catch { /* skip */ }
     setLoading(false);
   }, []);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  // Встроенный планировщик — тикает каждую секунду
-  useEffect(() => {
-    if (!enabled) { setCountdown(0); return; }
-    const totalSec = intervalMin * 60;
-    setCountdown(totalSec);
-    const tick = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) return totalSec; // сбросить — цикл запустится отдельным эффектом
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [enabled, intervalMin]);
-
-  // Запускаем цикл когда countdown дошёл до 0
-  useEffect(() => {
-    if (!enabled || countdown !== intervalMin * 60 || cycleCount === 0) return;
-    runCycle();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [countdown]);
-
-  const runCycle = async () => {
-    if (running) return;
-    setRunning(true);
-    try {
-      const r = await fetch(AUTOTRADER_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "run_once" }),
-      });
-      const d = await r.json();
-      setCycleCount(c => c + 1);
-      if (d.stopped) {
-        setEnabled(false);
-        setMsg({ text: `🛑 Стоп: ${d.reason}`, ok: false });
-      } else if (d.success) {
-        const done = (d.results || []).filter((t: { order_id?: string }) => t.order_id).length;
-        setMsg({ text: `✓ Цикл #${cycleCount + 1} · сделок: ${done} · P&L: ${d.daily_pnl >= 0 ? "+" : ""}${d.daily_pnl?.toFixed(0)} ₽`, ok: true });
-      }
-      loadStatus();
-    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
-    setRunning(false);
-    setTimeout(() => setMsg(null), 6000);
-  };
-
   const runOnce = async () => {
-    setCycleCount(c => c + 1);
-    await runCycle();
-    if (enabled) setCountdown(intervalMin * 60); // сброс таймера
+    setBotCountdown(intervalMin * 60); // сброс таймера
+    triggerBotCycle();
+    loadStatus();
   };
 
   const toggleBot = async () => {
     const newEnabled = !enabled;
     setEnabled(newEnabled);
-    if (newEnabled) { setCycleCount(0); setCountdown(intervalMin * 60); }
-    else { setCountdown(0); }
+    if (newEnabled) { setBotCountdown(intervalMin * 60); cycleRef2.current = 0; }
+    else { setBotCountdown(0); }
     try {
       const r = await fetch(AUTOTRADER_URL, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1396,8 +1369,8 @@ function AutoBotPage() {
       });
       const d = await r.json();
       if (d.success) {
-        setMsg({ text: newEnabled ? "✓ Бот запущен — первый цикл через несколько секунд" : "✓ Бот остановлен", ok: newEnabled });
-        if (newEnabled) { setTimeout(() => { setCycleCount(1); runCycle(); }, 2000); }
+        setMsg({ text: newEnabled ? "✓ Бот запущен — первый цикл сейчас" : "✓ Бот остановлен", ok: newEnabled });
+        if (newEnabled) { setTimeout(() => triggerBotCycle(), 1500); }
       } else { setEnabled(!newEnabled); }
     } catch { setEnabled(!newEnabled); }
     setTimeout(() => setMsg(null), 5000);
@@ -1972,6 +1945,59 @@ export default function Index() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [time, setTime] = useState(new Date());
 
+  // Глобальный планировщик — живёт вне AutoBotPage
+  const [botEnabled, setBotEnabled] = useState(false);
+  const [botIntervalMin, setBotIntervalMin] = useState(30);
+  const [botCountdown, setBotCountdown] = useState(0);
+  const [botCycleCount, setBotCycleCount] = useState(0);
+  const [botRunning2, setBotRunning2] = useState(false);
+  const [botLastMsg, setBotLastMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  // Таймер — тикает всегда пока бот включён
+  useEffect(() => {
+    if (!botEnabled) { setBotCountdown(0); return; }
+    const total = botIntervalMin * 60;
+    setBotCountdown(c => c > 0 ? c : total);
+    const tick = setInterval(() => {
+      setBotCountdown(prev => {
+        if (prev <= 1) { return total; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [botEnabled, botIntervalMin]);
+
+  // Запуск цикла когда таймер сбрасывается (кроме самого первого раза)
+  const cycleRef = useRef(0);
+  useEffect(() => {
+    if (!botEnabled || botCountdown !== botIntervalMin * 60) return;
+    if (cycleRef.current === 0) { cycleRef.current = 1; return; }
+    triggerBotCycle();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [botCountdown]);
+
+  const triggerBotCycle = useCallback(async () => {
+    if (botRunning2) return;
+    setBotRunning2(true);
+    try {
+      const r = await fetch(AUTOTRADER_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run_once" }),
+      });
+      const d = await r.json();
+      setBotCycleCount(c => c + 1);
+      if (d.stopped) {
+        setBotEnabled(false);
+        setBotLastMsg({ text: `🛑 Стоп: ${d.reason}`, ok: false });
+      } else if (d.success) {
+        const done = (d.results || []).filter((t: { order_id?: string }) => t.order_id).length;
+        setBotLastMsg({ text: `✓ Цикл #${botCycleCount + 1} · сделок: ${done} · P&L: ${d.daily_pnl >= 0 ? "+" : ""}${d.daily_pnl?.toFixed(0)} ₽`, ok: true });
+      }
+    } catch { setBotLastMsg({ text: "Ошибка соединения", ok: false }); }
+    setBotRunning2(false);
+    setTimeout(() => setBotLastMsg(null), 6000);
+  }, [botRunning2, botCycleCount]);
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
@@ -1983,7 +2009,14 @@ export default function Index() {
       case "trading": return <TradingPage />;
       case "strategies": return <StrategiesPage />;
       case "tbank": return <TBankPage />;
-      case "autobot": return <AutoBotPage />;
+      case "autobot": return <AutoBotPage
+        botEnabled={botEnabled} setBotEnabled={setBotEnabled}
+        botIntervalMin={botIntervalMin} setBotIntervalMin={setBotIntervalMin}
+        botCountdown={botCountdown} setBotCountdown={setBotCountdown}
+        botCycleCount={botCycleCount} setBotCycleCount={setBotCycleCount}
+        botRunning={botRunning2} triggerBotCycle={triggerBotCycle}
+        botLastMsg={botLastMsg} setBotLastMsg={setBotLastMsg}
+      />;
       case "wallet": return <WalletPage />;
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;
@@ -2054,10 +2087,17 @@ export default function Index() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2">
-              <div className="status-dot online" />
-              <span className="font-mono text-xs text-[var(--cyber-green)]">BINANCE LIVE</span>
-            </div>
+            {/* Индикатор автобота — виден из любого раздела */}
+            {botEnabled && (
+              <button onClick={() => setActiveSection("autobot")}
+                className="hidden md:flex items-center gap-2 px-2 py-1 border border-[var(--cyber-green)] rounded-none hover:bg-[rgba(0,255,136,0.08)] transition-all">
+                <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-green)] animate-pulse" />
+                <span className="font-mono text-xs text-[var(--cyber-green)]">БОТ</span>
+                <span className="font-orbitron text-xs neon-text">
+                  {Math.floor(botCountdown / 60).toString().padStart(2,"0")}:{(botCountdown % 60).toString().padStart(2,"0")}
+                </span>
+              </button>
+            )}
             <div className="hidden md:block font-mono text-xs text-[var(--cyber-text-dim)]">
               {time.toLocaleTimeString("ru-RU")}
             </div>
