@@ -775,22 +775,25 @@ interface TBankBalance {
   daily_chart: { day: string; date: string; pnl: number }[];
 }
 
+interface BotTrade { ticker: string; signal: string; lots?: number; price?: number; total?: number; status?: string; rsi?: number; reason?: string; }
+interface AutoBotStatusLight { enabled: boolean; mode: string; fixed_amount: number; last_run: string; last_trades: BotTrade[]; daily_pnl: number; }
+
 function TBankPage() {
-  const [tab, setTab] = useState<"balance" | "market" | "orders" | "portfolio">("balance");
+  const [tab, setTab] = useState<"balance" | "autobot" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
   const [hasToken, setHasToken] = useState<boolean | null>(null);
   const [balance, setBalance] = useState<TBankBalance | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [botStatus, setBotStatus] = useState<AutoBotStatusLight | null>(null);
+  const [botLoading, setBotLoading] = useState(false);
+  const [toggling, setToggling] = useState(false);
 
   useEffect(() => {
     fetch(`${TBANK_URL}?action=accounts`)
       .then(r => r.json())
-      .then(d => {
-        const ok = Array.isArray(d) && d.length > 0;
-        setHasToken(ok);
-      })
+      .then(d => { setHasToken(Array.isArray(d) && d.length > 0); })
       .catch(() => setHasToken(false));
   }, []);
 
@@ -800,13 +803,40 @@ function TBankPage() {
     setBalanceError(null);
     fetch(`${TBANK_URL}?action=balance`)
       .then(r => r.json())
-      .then(d => {
-        if (d.error) { setBalanceError(d.error); }
-        else { setBalance(d); }
-      })
+      .then(d => { if (d.error) setBalanceError(d.error); else setBalance(d); })
       .catch(() => setBalanceError("Ошибка соединения"))
       .finally(() => setBalanceLoading(false));
   }, [tab]);
+
+  useEffect(() => {
+    if (tab !== "autobot") return;
+    setBotLoading(true);
+    fetch(`${AUTOTRADER_URL}?action=status`)
+      .then(r => r.json())
+      .then(d => setBotStatus(d))
+      .catch(() => {})
+      .finally(() => setBotLoading(false));
+  }, [tab]);
+
+  const toggleBot = async () => {
+    if (!botStatus) return;
+    setToggling(true);
+    const newEnabled = !botStatus.enabled;
+    await fetch(AUTOTRADER_URL, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save_settings", mode: botStatus.mode, fixed_amount: botStatus.fixed_amount, stop_pct: 3, enabled: newEnabled }),
+    });
+    setBotStatus(s => s ? { ...s, enabled: newEnabled } : s);
+    setToggling(false);
+  };
+
+  const runNow = async () => {
+    setToggling(true);
+    const r = await fetch(AUTOTRADER_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "run_once" }) });
+    const d = await r.json();
+    setBotStatus(s => s ? { ...s, last_run: d.run_at || s.last_run, last_trades: d.results || s.last_trades, daily_pnl: d.daily_pnl ?? s.daily_pnl } : s);
+    setToggling(false);
+  };
 
   const filtered = TBANK_INSTRUMENTS.filter(i => {
     const matchSearch = search === "" || i.ticker.toLowerCase().includes(search.toLowerCase()) || i.name.toLowerCase().includes(search.toLowerCase());
@@ -855,10 +885,10 @@ function TBankPage() {
 
       {/* Вкладки */}
       <div className="flex gap-2 flex-wrap animate-fade-in-up">
-        {(["balance", "market", "orders", "portfolio"] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)}
+        {(["balance", "autobot", "market", "orders", "portfolio"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t as typeof tab)}
             className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${tab === t ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
-            {t === "balance" ? "💰 БАЛАНС" : t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
+            {t === "balance" ? "💰 БАЛАНС" : t === "autobot" ? "🤖 АВТОБОТ" : t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
           </button>
         ))}
       </div>
@@ -994,6 +1024,114 @@ function TBankPage() {
               )}
             </>
           )}
+        </div>
+      )}
+
+      {/* ═══ АВТОБОТ ═══ */}
+      {tab === "autobot" && (
+        <div className="space-y-4 animate-fade-in-up">
+          {botLoading && <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none"><Spinner /><span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю статус бота...</span></div>}
+
+          {botStatus && !botLoading && (<>
+
+            {/* Статус + управление */}
+            <div className="cyber-card-glow rounded-none p-4 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div className="font-orbitron text-sm font-bold text-[var(--cyber-text)] flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${botStatus.enabled ? "bg-[var(--cyber-green)] animate-pulse" : "bg-[var(--cyber-text-dim)]"}`} />
+                  {botStatus.enabled ? "БОТ АКТИВЕН — ТОРГУЕТ" : "БОТ ОСТАНОВЛЕН"}
+                </div>
+                <div className="section-label mt-1">
+                  Режим: <span className="text-[var(--cyber-cyan)]">{botStatus.mode === "10pct" ? "10% от остатка" : botStatus.mode === "25pct" ? "25% от остатка" : botStatus.mode === "50pct" ? "50% от остатка" : `${botStatus.fixed_amount?.toLocaleString("ru-RU")} ₽ фикс`}</span>
+                  {" · "}Последний запуск: <span className="text-[var(--cyber-text)]">{botStatus.last_run || "—"}</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={runNow} disabled={toggling}
+                  className="px-3 py-1.5 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center gap-1">
+                  {toggling ? <Spinner /> : <Icon name="Play" size={12} />}
+                  ЗАПУСТИТЬ ЦИКЛ
+                </button>
+                <button onClick={toggleBot} disabled={toggling}
+                  className={`px-3 py-1.5 font-mono text-xs border rounded-none transition-all disabled:opacity-40 ${botStatus.enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]"}`}>
+                  {botStatus.enabled ? "СТОП" : "СТАРТ"}
+                </button>
+              </div>
+            </div>
+
+            {/* Дневной P&L */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="cyber-card-glow rounded-none p-4 text-center">
+                <div className={`font-orbitron text-2xl font-black ${(botStatus.daily_pnl ?? 0) >= 0 ? "neon-text" : "loss"}`}>
+                  {(botStatus.daily_pnl ?? 0) >= 0 ? "+" : ""}{(botStatus.daily_pnl ?? 0).toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+                </div>
+                <div className="section-label mt-1">Доход бота сегодня</div>
+              </div>
+              <div className="cyber-card-glow rounded-none p-4 text-center">
+                <div className="font-orbitron text-2xl font-black neon-text-cyan">
+                  {botStatus.last_trades?.filter(t => t.signal === "BUY" || t.signal === "SELL").length ?? 0}
+                </div>
+                <div className="section-label mt-1">Сделок в последнем цикле</div>
+              </div>
+            </div>
+
+            {/* Таблица сделок бота */}
+            <div className="cyber-card rounded-none p-4">
+              <div className="section-label mb-3 flex items-center gap-2">
+                <Icon name="Bot" size={12} className="neon-text" />
+                СДЕЛКИ АВТОБОТА — ПОСЛЕДНИЙ ЦИКЛ
+              </div>
+              {!botStatus.last_trades || botStatus.last_trades.length === 0 ? (
+                <div className="text-center py-6 text-[var(--cyber-text-dim)] font-mono text-xs">Ещё не было запусков. Нажми «Запустить цикл»</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-[var(--cyber-border)]">
+                        {["Тикер", "Сигнал", "RSI", "Лотов", "Цена", "Сумма", "Результат"].map(h => (
+                          <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {botStatus.last_trades.map((t, i) => (
+                        <tr key={i} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,255,136,0.02)] animate-fade-in-up" style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}>
+                          <td className="font-mono text-sm font-bold text-[var(--cyber-text)] py-2.5 pr-4">{t.ticker}</td>
+                          <td className="py-2.5 pr-4">
+                            <span className={`px-2 py-0.5 font-mono text-[10px] font-bold rounded-none ${t.signal === "BUY" ? "bg-[rgba(0,255,136,0.15)] text-[var(--cyber-green)]" : t.signal === "SELL" ? "bg-[rgba(255,61,113,0.15)] text-[var(--cyber-red)]" : "bg-[rgba(26,58,74,0.5)] text-[var(--cyber-text-dim)]"}`}>
+                              {t.signal === "BUY" ? "🟢 КУПИЛ" : t.signal === "SELL" ? "🔴 ПРОДАЛ" : t.signal}
+                            </span>
+                          </td>
+                          <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2.5 pr-4">{t.rsi ?? "—"}</td>
+                          <td className="font-mono text-xs text-[var(--cyber-text)] py-2.5 pr-4">{t.lots ?? "—"}</td>
+                          <td className="font-mono text-xs text-[var(--cyber-text)] py-2.5 pr-4">{t.price ? `${t.price.toLocaleString("ru-RU")} ₽` : "—"}</td>
+                          <td className="font-mono text-xs py-2.5 pr-4">
+                            {t.total ? <span className="text-[var(--cyber-text)]">{t.total.toLocaleString("ru-RU")} ₽</span> : <span className="text-[var(--cyber-text-dim)]">—</span>}
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            {t.reason
+                              ? <span className="font-mono text-[10px] text-[var(--cyber-text-dim)]">{t.reason}</span>
+                              : t.status
+                                ? <span className="font-mono text-[10px] neon-text">✓ {t.status}</span>
+                                : <span className="font-mono text-[10px] text-[var(--cyber-text-dim)]">HOLD</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Защита */}
+            <div className="cyber-card rounded-none p-3 border border-[rgba(255,61,113,0.15)]">
+              <div className="flex items-center gap-2 text-[11px] text-[var(--cyber-text-dim)]">
+                <Icon name="Shield" size={13} className="text-[var(--cyber-yellow)] shrink-0" />
+                Защита: при убытке <span className="text-[var(--cyber-red)] mx-1">−3%</span> от баланса бот останавливается автоматически
+              </div>
+            </div>
+
+          </>)}
         </div>
       )}
 
