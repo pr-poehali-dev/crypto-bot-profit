@@ -1299,6 +1299,13 @@ interface BotStatus {
   daily_pnl: number;
 }
 
+const INTERVALS = [
+  { val: 10,  label: "10 мин" },
+  { val: 20,  label: "20 мин" },
+  { val: 30,  label: "30 мин" },
+  { val: 60,  label: "1 час" },
+];
+
 function AutoBotPage() {
   const [status, setStatus] = useState<BotStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1309,6 +1316,9 @@ function AutoBotPage() {
   const [mode, setMode] = useState("10pct");
   const [fixedAmount, setFixedAmount] = useState("5000");
   const [enabled, setEnabled] = useState(false);
+  const [intervalMin, setIntervalMin] = useState(30);
+  const [countdown, setCountdown] = useState(0);
+  const [cycleCount, setCycleCount] = useState(0);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -1324,63 +1334,101 @@ function AutoBotPage() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  // Сохранить только настройки (режим + сумма), не трогать enabled
+  // Встроенный планировщик — тикает каждую секунду
+  useEffect(() => {
+    if (!enabled) { setCountdown(0); return; }
+    const totalSec = intervalMin * 60;
+    setCountdown(totalSec);
+    const tick = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) return totalSec; // сбросить — цикл запустится отдельным эффектом
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [enabled, intervalMin]);
+
+  // Запускаем цикл когда countdown дошёл до 0
+  useEffect(() => {
+    if (!enabled || countdown !== intervalMin * 60 || cycleCount === 0) return;
+    runCycle();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdown]);
+
+  const runCycle = async () => {
+    if (running) return;
+    setRunning(true);
+    try {
+      const r = await fetch(AUTOTRADER_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run_once" }),
+      });
+      const d = await r.json();
+      setCycleCount(c => c + 1);
+      if (d.stopped) {
+        setEnabled(false);
+        setMsg({ text: `🛑 Стоп: ${d.reason}`, ok: false });
+      } else if (d.success) {
+        const done = (d.results || []).filter((t: { order_id?: string }) => t.order_id).length;
+        setMsg({ text: `✓ Цикл #${cycleCount + 1} · сделок: ${done} · P&L: ${d.daily_pnl >= 0 ? "+" : ""}${d.daily_pnl?.toFixed(0)} ₽`, ok: true });
+      }
+      loadStatus();
+    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
+    setRunning(false);
+    setTimeout(() => setMsg(null), 6000);
+  };
+
+  const runOnce = async () => {
+    setCycleCount(c => c + 1);
+    await runCycle();
+    if (enabled) setCountdown(intervalMin * 60); // сброс таймера
+  };
+
+  const toggleBot = async () => {
+    const newEnabled = !enabled;
+    setEnabled(newEnabled);
+    if (newEnabled) { setCycleCount(0); setCountdown(intervalMin * 60); }
+    else { setCountdown(0); }
+    try {
+      const r = await fetch(AUTOTRADER_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        setMsg({ text: newEnabled ? "✓ Бот запущен — первый цикл через несколько секунд" : "✓ Бот остановлен", ok: newEnabled });
+        if (newEnabled) { setTimeout(() => { setCycleCount(1); runCycle(); }, 2000); }
+      } else { setEnabled(!newEnabled); }
+    } catch { setEnabled(!newEnabled); }
+    setTimeout(() => setMsg(null), 5000);
+  };
+
   const saveSettings = async () => {
     setSaving(true);
     try {
       const r = await fetch(AUTOTRADER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled }),
       });
       const d = await r.json();
       if (d.success) { setMsg({ text: "✓ Настройки сохранены", ok: true }); loadStatus(); }
       else setMsg({ text: d.error || "Ошибка", ok: false });
-    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
+    } catch { setMsg({ text: "Ошибка", ok: false }); }
     setSaving(false);
     setTimeout(() => setMsg(null), 3000);
   };
 
-  // Только переключить вкл/выкл бота
-  const toggleBot = async () => {
-    const newEnabled = !enabled;
-    setEnabled(newEnabled);
-    try {
-      const r = await fetch(AUTOTRADER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled }),
-      });
-      const d = await r.json();
-      if (d.success) setMsg({ text: newEnabled ? "✓ Бот запущен" : "✓ Бот остановлен", ok: newEnabled });
-      else { setEnabled(!newEnabled); setMsg({ text: d.error || "Ошибка", ok: false }); }
-    } catch { setEnabled(!newEnabled); setMsg({ text: "Ошибка соединения", ok: false }); }
-    setTimeout(() => setMsg(null), 3000);
-  };
-
-  const runOnce = async () => {
-    setRunning(true);
-    setMsg(null);
-    try {
-      const r = await fetch(AUTOTRADER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "run_once" }),
-      });
-      const d = await r.json();
-      if (d.stopped) setMsg({ text: `Стоп: ${d.reason}`, ok: false });
-      else if (d.success) setMsg({ text: `Цикл завершён · Свободно: ${d.free_cash?.toLocaleString("ru-RU")} ₽ · Сумма сделки: ${d.order_amount?.toLocaleString("ru-RU")} ₽`, ok: true });
-      else setMsg({ text: d.error || "Ошибка", ok: false });
-      loadStatus();
-    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
-    setRunning(false);
+  const fmtCountdown = (sec: number) => {
+    const m = Math.floor(sec / 60).toString().padStart(2, "0");
+    const s = (sec % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
   };
 
   const MODES = [
-    { id: "10pct", label: "10% от остатка", desc: "Безопасный режим — до 10 параллельных позиций" },
-    { id: "25pct", label: "25% от остатка", desc: "Умеренный — до 4 позиций одновременно" },
-    { id: "50pct", label: "50% от остатка", desc: "Агрессивный — максимум 2 крупные позиции" },
-    { id: "fixed", label: "Фиксированная сумма", desc: "Задаёшь точную сумму в рублях на сделку" },
+    { id: "10pct", label: "10% от остатка", desc: "Безопасный — до 10 позиций" },
+    { id: "25pct", label: "25% от остатка", desc: "Умеренный — до 4 позиций" },
+    { id: "50pct", label: "50% от остатка", desc: "Агрессивный — 2 крупные позиции" },
+    { id: "fixed", label: "Фиксированная сумма", desc: "Точная сумма в рублях на сделку" },
   ];
 
   if (loading) return <div className="flex items-center justify-center p-20"><Spinner /></div>;
@@ -1388,26 +1436,48 @@ function AutoBotPage() {
   return (
     <div className="space-y-4">
 
-      {/* Шапка со статусом */}
-      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
-            <Icon name="Bot" size={16} className="neon-text" />
-            АВТОМАТИЧЕСКИЙ ТОРГОВЫЙ БОТ
-          </div>
-          <div className="section-label mt-0.5">Т-Банк Invest · RSI + EMA стратегии</div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${enabled ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${enabled ? "bg-[var(--cyber-green)] animate-pulse" : "bg-[var(--cyber-text-dim)]"}`} />
-            {enabled ? "АКТИВЕН" : "ОСТАНОВЛЕН"}
+      {/* Шапка со статусом + таймер */}
+      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <div>
+            <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
+              <Icon name="Bot" size={16} className="neon-text" />
+              АВТОМАТИЧЕСКИЙ ТОРГОВЫЙ БОТ
+            </div>
+            <div className="section-label mt-0.5">Т-Банк Invest · RSI + EMA · Встроенный планировщик</div>
           </div>
           <button
             onClick={toggleBot}
-            className={`px-4 py-1.5 font-mono text-xs rounded-none border transition-all ${enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]"}`}>
-            {enabled ? "ОСТАНОВИТЬ" : "ЗАПУСТИТЬ"}
+            className={`px-5 py-2 font-orbitron text-xs font-bold rounded-none border transition-all ${enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)]"}`}>
+            {enabled ? "⏹ ОСТАНОВИТЬ" : "▶ ЗАПУСТИТЬ БОТ"}
           </button>
         </div>
+
+        {/* Выбор интервала */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="section-label shrink-0">Интервал запуска:</span>
+          {INTERVALS.map(iv => (
+            <button key={iv.val} onClick={() => { setIntervalMin(iv.val); if (enabled) setCountdown(iv.val * 60); }}
+              disabled={enabled}
+              className={`px-3 py-1 font-mono text-xs rounded-none border transition-all disabled:opacity-50 ${intervalMin === iv.val ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
+              {iv.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Таймер обратного отсчёта */}
+        {enabled && countdown > 0 && (
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] h-1.5 rounded-none overflow-hidden">
+              <div className="h-full bg-[var(--cyber-green)] transition-all duration-1000"
+                style={{ width: `${100 - (countdown / (intervalMin * 60) * 100)}%`, boxShadow: "0 0 6px var(--cyber-green)" }} />
+            </div>
+            <div className="font-orbitron text-sm font-bold neon-text shrink-0">
+              {fmtCountdown(countdown)}
+            </div>
+            <div className="section-label shrink-0">до след. цикла</div>
+          </div>
+        )}
       </div>
 
       {/* Уведомление */}
@@ -1417,14 +1487,15 @@ function AutoBotPage() {
         </div>
       )}
 
-      {/* Ключевые метрики */}
-      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
+      {/* Метрики */}
+      <div className="grid grid-cols-4 gap-3 animate-fade-in-up">
         {[
-          { label: "Дневной P&L", val: `${(status?.daily_pnl ?? 0) >= 0 ? "+" : ""}${(status?.daily_pnl ?? 0).toLocaleString("ru-RU")} ₽`, color: (status?.daily_pnl ?? 0) >= 0 ? "neon-text" : "loss" },
-          { label: "Последний запуск", val: status?.last_run || "—", color: "neon-text-cyan" },
-          { label: "Защита стоп", val: "−3% баланса", color: "text-[var(--cyber-yellow)]" },
+          { label: "Статус", val: enabled ? "АКТИВЕН" : "СТОП", color: enabled ? "neon-text" : "text-[var(--cyber-text-dim)]" },
+          { label: "Циклов запущено", val: String(cycleCount), color: "neon-text-cyan" },
+          { label: "Дневной P&L", val: `${(status?.daily_pnl ?? 0) >= 0 ? "+" : ""}${(status?.daily_pnl ?? 0).toFixed(0)} ₽`, color: (status?.daily_pnl ?? 0) >= 0 ? "profit" : "loss" },
+          { label: "Защита стоп", val: "−3% / день", color: "text-[var(--cyber-yellow)]" },
         ].map(s => (
-          <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
+          <div key={s.label} className="cyber-card rounded-none p-3 text-center">
             <div className={`font-mono text-sm font-bold ${s.color}`}>{s.val}</div>
             <div className="section-label mt-0.5">{s.label}</div>
           </div>
@@ -1466,14 +1537,10 @@ function AutoBotPage() {
       </div>
 
       {/* Ручной запуск */}
-      <div className="cyber-card rounded-none p-4 animate-fade-in-up">
-        <div className="section-label mb-2">РУЧНОЙ ЗАПУСК ОДНОГО ЦИКЛА</div>
-        <div className="text-[11px] text-[var(--cyber-text-dim)] mb-3">Бот проверит сигналы RSI + EMA по всем инструментам и выполнит ордера прямо сейчас</div>
-        <button onClick={runOnce} disabled={running}
-          className="w-full py-2.5 font-orbitron text-xs font-bold border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
-          {running ? <><Spinner /><span>ТОРГУЮ...</span></> : "▶ ЗАПУСТИТЬ ЦИКЛ СЕЙЧАС"}
-        </button>
-      </div>
+      <button onClick={runOnce} disabled={running}
+        className="w-full py-3 font-orbitron text-xs font-bold border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2 animate-fade-in-up">
+        {running ? <><Spinner /><span>ПРОВЕРЯЮ СИГНАЛЫ И ТОРГУЮ...</span></> : <><Icon name="Zap" size={13} /><span>ЗАПУСТИТЬ ОДИН ЦИКЛ ВРУЧНУЮ</span></>}
+      </button>
 
       {/* Последние сигналы */}
       {status?.last_trades && status.last_trades.length > 0 && (
