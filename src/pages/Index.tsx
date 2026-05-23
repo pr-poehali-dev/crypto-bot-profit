@@ -1150,20 +1150,37 @@ function AutoBotPage() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  const saveSettings = async (newEnabled?: boolean) => {
+  // Сохранить только настройки (режим + сумма), не трогать enabled
+  const saveSettings = async () => {
     setSaving(true);
-    const isEnabled = newEnabled !== undefined ? newEnabled : enabled;
     try {
       const r = await fetch(AUTOTRADER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount), stop_pct: 3, enabled: isEnabled }),
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled }),
       });
       const d = await r.json();
-      if (d.success) { setMsg({ text: "Настройки сохранены", ok: true }); setEnabled(isEnabled); loadStatus(); }
+      if (d.success) { setMsg({ text: "✓ Настройки сохранены", ok: true }); loadStatus(); }
       else setMsg({ text: d.error || "Ошибка", ok: false });
     } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
     setSaving(false);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  // Только переключить вкл/выкл бота
+  const toggleBot = async () => {
+    const newEnabled = !enabled;
+    setEnabled(newEnabled);
+    try {
+      const r = await fetch(AUTOTRADER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled }),
+      });
+      const d = await r.json();
+      if (d.success) setMsg({ text: newEnabled ? "✓ Бот запущен" : "✓ Бот остановлен", ok: newEnabled });
+      else { setEnabled(!newEnabled); setMsg({ text: d.error || "Ошибка", ok: false }); }
+    } catch { setEnabled(!newEnabled); setMsg({ text: "Ошибка соединения", ok: false }); }
     setTimeout(() => setMsg(null), 3000);
   };
 
@@ -1212,7 +1229,7 @@ function AutoBotPage() {
             {enabled ? "АКТИВЕН" : "ОСТАНОВЛЕН"}
           </div>
           <button
-            onClick={() => saveSettings(!enabled)}
+            onClick={toggleBot}
             className={`px-4 py-1.5 font-mono text-xs rounded-none border transition-all ${enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]"}`}>
             {enabled ? "ОСТАНОВИТЬ" : "ЗАПУСТИТЬ"}
           </button>

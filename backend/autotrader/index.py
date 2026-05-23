@@ -52,7 +52,8 @@ def get_setting(key, default=""):
 
 def set_setting(key, value):
     try:
-        db_query(f"UPDATE bot_settings SET value = '{value}', updated_at = NOW() WHERE key = '{key}' AND user_id = 1")
+        value_safe = str(value).replace("'", "''")
+        db_query(f"INSERT INTO bot_settings (user_id, key, value) VALUES (1, '{key}', '{value_safe}') ON CONFLICT (user_id, key) DO UPDATE SET value = '{value_safe}', updated_at = NOW()")
     except:
         pass
 
