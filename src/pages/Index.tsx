@@ -1444,7 +1444,14 @@ function AutoBotPage() {
               <Icon name="Bot" size={16} className="neon-text" />
               АВТОМАТИЧЕСКИЙ ТОРГОВЫЙ БОТ
             </div>
-            <div className="section-label mt-0.5">Т-Банк Invest · RSI + EMA · Встроенный планировщик</div>
+            <div className="section-label mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>Т-Банк Invest · RSI + EMA</span>
+              {status?.instruments_count ? (
+                <span className="px-1.5 py-0.5 border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] font-mono text-[10px]">
+                  {status.instruments_count} акций и ETF
+                </span>
+              ) : null}
+            </div>
           </div>
           <button
             onClick={toggleBot}
@@ -1488,18 +1495,30 @@ function AutoBotPage() {
       )}
 
       {/* Метрики */}
-      <div className="grid grid-cols-4 gap-3 animate-fade-in-up">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-fade-in-up">
         {[
-          { label: "Статус", val: enabled ? "АКТИВЕН" : "СТОП", color: enabled ? "neon-text" : "text-[var(--cyber-text-dim)]" },
-          { label: "Циклов запущено", val: String(cycleCount), color: "neon-text-cyan" },
-          { label: "Дневной P&L", val: `${(status?.daily_pnl ?? 0) >= 0 ? "+" : ""}${(status?.daily_pnl ?? 0).toFixed(0)} ₽`, color: (status?.daily_pnl ?? 0) >= 0 ? "profit" : "loss" },
-          { label: "Защита стоп", val: "−3% / день", color: "text-[var(--cyber-yellow)]" },
+          { label: "Статус", val: enabled ? "АКТИВЕН" : "СТОП", color: enabled ? "neon-text" : "text-[var(--cyber-text-dim)]", icon: "Bot" },
+          { label: "Циклов запущено", val: String(cycleCount), color: "neon-text-cyan", icon: "RefreshCw" },
+          { label: "Дневной P&L", val: `${(status?.daily_pnl ?? 0) >= 0 ? "+" : ""}${(status?.daily_pnl ?? 0).toFixed(0)} ₽`, color: (status?.daily_pnl ?? 0) >= 0 ? "profit" : "loss", icon: "TrendingUp" },
+          { label: "Защита стоп", val: "−3% / день", color: "text-[var(--cyber-yellow)]", icon: "Shield" },
         ].map(s => (
           <div key={s.label} className="cyber-card rounded-none p-3 text-center">
+            <Icon name={s.icon} size={13} className={`mx-auto mb-1 ${s.color}`} />
             <div className={`font-mono text-sm font-bold ${s.color}`}>{s.val}</div>
             <div className="section-label mt-0.5">{s.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* Правило продажи */}
+      <div className="cyber-card rounded-none p-3 border border-[rgba(0,255,136,0.2)] animate-fade-in-up">
+        <div className="flex items-start gap-2">
+          <Icon name="TrendingUp" size={13} className="neon-text shrink-0 mt-0.5" />
+          <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+            <span className="neon-text font-semibold">Логика бота: </span>
+            покупает акции по сигналу RSI/EMA, <span className="text-[var(--cyber-green)]">продаёт только когда цена выше цены покупки</span> (минимум +0.5% прибыли). Убыточные позиции держит до выхода в плюс. За цикл проверяет до 30 случайных инструментов из всего рынка.
+          </div>
+        </div>
       </div>
 
       {/* Настройки суммы на сделку */}
