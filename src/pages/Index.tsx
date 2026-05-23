@@ -1123,6 +1123,42 @@ function TBankPage() {
               )}
             </div>
 
+            {/* Планировщик */}
+            <div className="cyber-card rounded-none p-4 border border-[rgba(0,212,255,0.2)]">
+              <div className="section-label mb-3 flex items-center gap-2">
+                <Icon name="Clock" size={12} className="neon-text-cyan" />
+                ПЛАНИРОВЩИК — АВТОЗАПУСК КАЖДЫЙ ЧАС
+              </div>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <div className="section-label text-[10px] mb-1">Статус</div>
+                  <div className={`font-mono text-xs font-semibold flex items-center gap-1.5 ${botStatus.enabled ? "neon-text" : "text-[var(--cyber-text-dim)]"}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full ${botStatus.enabled ? "bg-[var(--cyber-green)] animate-pulse" : "bg-[var(--cyber-text-dim)]"}`} />
+                    {botStatus.enabled ? "РАБОТАЕТ" : "ОСТАНОВЛЕН"}
+                  </div>
+                </div>
+                <div>
+                  <div className="section-label text-[10px] mb-1">Последний запуск</div>
+                  <div className="font-mono text-xs text-[var(--cyber-text)]">{botStatus.last_run || "—"}</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                {[
+                  { label: "Интервал", val: "1 час" },
+                  { label: "Часы работы", val: "07:00–23:00" },
+                  { label: "Стратегии", val: "RSI + EMA" },
+                ].map(s => (
+                  <div key={s.label} className="bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] p-2 rounded-none">
+                    <div className="font-mono text-xs font-semibold neon-text-cyan">{s.val}</div>
+                    <div className="section-label text-[9px] mt-0.5">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+                Планировщик каждый час автоматически проверяет сигналы RSI и EMA по 5 инструментам (SBER, YNDX, AAPL, GAZP, TMOS) и выставляет ордера если бот включён.
+              </div>
+            </div>
+
             {/* Защита */}
             <div className="cyber-card rounded-none p-3 border border-[rgba(255,61,113,0.15)]">
               <div className="flex items-center gap-2 text-[11px] text-[var(--cyber-text-dim)]">
