@@ -1771,6 +1771,9 @@ function AutoBotPage({
         ))}
       </div>
 
+      {/* Серверный планировщик 24/7 — сразу после метрик */}
+      <ServerCronPanel />
+
       {/* Правило продажи */}
       <div className="cyber-card rounded-none p-3 border border-[rgba(0,255,136,0.2)] animate-fade-in-up">
         <div className="flex items-start gap-2">
@@ -1846,9 +1849,6 @@ function AutoBotPage({
         </div>
       )}
 
-      {/* Серверный планировщик 24/7 */}
-      <ServerCronPanel />
-
       {/* Защита */}
       <div className="cyber-card rounded-none p-3 border border-[rgba(255,61,113,0.2)] animate-fade-in-up">
         <div className="flex items-start gap-2">
@@ -1882,7 +1882,7 @@ function ServerCronPanel() {
   const testNow = async () => {
     setTesting(true); setTestMsg(null);
     try {
-      const r = await fetch(SCHEDULER_URL, { headers: { "Content-Type": "application/json" } });
+      const r = await authFetch(SCHEDULER_URL);
       const d = await r.json();
       if (d.success) {
         setLastRun(d.time);
