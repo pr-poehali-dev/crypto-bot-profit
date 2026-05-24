@@ -1052,8 +1052,50 @@ function TBankOrdersTab({ accountId }: { accountId: string }) {
   );
 }
 
+function TBankScalpStatus() {
+  const [data, setData] = useState<{ open_trades: { ticker: string; buy_price: number; lots: number; target_pct: number; stop_pct: number }[]; trades_today: number; pnl_today: number } | null>(null);
+  useEffect(() => {
+    authFetch(`${SCALPER_URL}?action=status`).then(r => r.json()).then(d => { if (!d.error) setData(d); }).catch(() => {});
+  }, []);
+  if (!data) return <div className="flex items-center justify-center py-8"><Spinner /></div>;
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-xl font-bold text-[var(--cyber-yellow)]">{data.open_trades.length}</div>
+          <div className="section-label mt-0.5">Открытых</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-xl font-bold neon-text">{data.trades_today}</div>
+          <div className="section-label mt-0.5">Сегодня</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className={`font-orbitron text-xl font-bold ${data.pnl_today >= 0 ? "neon-text" : "loss"}`}>
+            {data.pnl_today >= 0 ? "+" : ""}{data.pnl_today.toFixed(0)} ₽
+          </div>
+          <div className="section-label mt-0.5">P&L</div>
+        </div>
+      </div>
+      {data.open_trades.length > 0 && (
+        <div className="cyber-card rounded-none p-3">
+          <div className="section-label mb-2">ПОЗИЦИИ СКАЛЬПЕРА</div>
+          {data.open_trades.map((t, i) => (
+            <div key={i} className="flex justify-between py-1.5 border-b border-[rgba(26,58,74,0.4)] last:border-0">
+              <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</span>
+              <div className="flex gap-3">
+                <span className="font-mono text-xs neon-text">+{t.target_pct}%</span>
+                <span className="font-mono text-xs text-[var(--cyber-red)]">−{t.stop_pct}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
-  const [tab, setTab] = useState<"balance" | "autobot" | "market" | "orders" | "portfolio">("balance");
+  const [tab, setTab] = useState<"balance" | "autobot" | "scalper" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
   const [hasToken, setHasToken] = useState<boolean | null>(null);
@@ -1178,10 +1220,10 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
 
       {/* Вкладки */}
       <div className="flex gap-2 flex-wrap animate-fade-in-up">
-        {(["balance", "autobot", "market", "orders", "portfolio"] as const).map(t => (
+        {(["balance", "autobot", "scalper", "market", "orders", "portfolio"] as const).map(t => (
           <button key={t} onClick={() => setTab(t as typeof tab)}
             className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${tab === t ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
-            {t === "balance" ? "💰 БАЛАНС" : t === "autobot" ? "🤖 АВТОБОТ" : t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
+            {t === "balance" ? "💰 БАЛАНС" : t === "autobot" ? "🤖 АВТОБОТ" : t === "scalper" ? "⚡ СКАЛЬПИНГ" : t === "market" ? "РЫНОК" : t === "orders" ? "СДЕЛКИ" : "ПОРТФЕЛЬ"}
           </button>
         ))}
       </div>
@@ -1461,6 +1503,20 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
             </div>
 
           </>)}
+        </div>
+      )}
+
+      {/* ═══ СКАЛЬПИНГ в Т-Банк ═══ */}
+      {tab === "scalper" && (
+        <div className="animate-fade-in-up">
+          <div className="cyber-card rounded-none p-4 mb-3 border border-[rgba(255,200,0,0.2)]">
+            <div className="flex items-center gap-2 text-[11px] text-[var(--cyber-text-dim)]">
+              <Icon name="Zap" size={13} className="text-[var(--cyber-yellow)] shrink-0" />
+              Скальпинг-бот находится в разделе <button onClick={() => {}} className="text-[var(--cyber-yellow)] font-semibold underline">⚡ Скальпинг</button> в боковом меню. Открытые позиции и история сделок — там же.
+            </div>
+          </div>
+          {/* Мини-статус прямо в Т-Банк */}
+          <TBankScalpStatus />
         </div>
       )}
 
@@ -2364,19 +2420,35 @@ function ProfilePage({ user }: { user: { username: string; role: string } }) {
   );
 }
 
+interface ScalperPageProps {
+  scalpEnabled: boolean; setScalpEnabled: (v: boolean) => void;
+  scalpIntervalMin: number; setScalpIntervalMin: (v: number) => void;
+  scalpCountdown: number; setScalpCountdown: (v: number) => void;
+  scalpRunning: boolean; triggerScalpCycle: () => void;
+  scalpMsg: { text: string; ok: boolean } | null;
+}
+
+const SCALP_INTERVALS = [
+  { val: 5, label: "5 мин" },
+  { val: 10, label: "10 мин" },
+  { val: 15, label: "15 мин" },
+  { val: 30, label: "30 мин" },
+  { val: 60, label: "1 час" },
+];
+
 /* ===== SCALPER PAGE ===== */
-function ScalperPage() {
+function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalpIntervalMin, scalpCountdown, setScalpCountdown, scalpRunning, triggerScalpCycle, scalpMsg }: ScalperPageProps) {
   const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string }[]; trades_today: number; pnl_today: number; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean } } | null>(null);
+  const [history, setHistory] = useState<{ id: number; ticker: string; buy_price: number; sell_price: number; pnl: number; pnl_pct: number; status: string; opened_at: string; closed_at: string }[]>([]);
   const [candidates, setCandidates] = useState<{ figi: string; ticker: string; name: string; score: number; rsi: number; volatility: number; price: number; lot: number }[]>([]);
   const [scanning, setScanning] = useState(false);
-  const [running, setRunning] = useState(false);
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   const [targetPct, setTargetPct] = useState("1.0");
   const [stopPct, setStopPct] = useState("2.0");
   const [amount, setAmount] = useState("1000");
-  const [enabled, setEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"main" | "history">("main");
 
   const loadStatus = useCallback(async () => {
     const r = await authFetch(`${SCALPER_URL}?action=status`);
@@ -2386,11 +2458,16 @@ function ScalperPage() {
       setTargetPct(String(d.settings.target_pct));
       setStopPct(String(d.settings.stop_pct));
       setAmount(String(d.settings.amount));
-      setEnabled(d.settings.enabled);
     }
   }, []);
 
-  useEffect(() => { loadStatus(); }, [loadStatus]);
+  const loadHistory = useCallback(async () => {
+    const r = await authFetch(`${SCALPER_URL}?action=history`);
+    const d = await r.json();
+    if (d.trades) setHistory(d.trades);
+  }, []);
+
+  useEffect(() => { loadStatus(); loadHistory(); }, [loadStatus, loadHistory]);
 
   const scan = async () => {
     setScanning(true); setCandidates([]);
@@ -2402,25 +2479,17 @@ function ScalperPage() {
 
   const saveSettings = async () => {
     setSaving(true);
-    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled }) });
+    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled: scalpEnabled }) });
     await loadStatus();
     setSaving(false);
-    setMsg({ text: "✓ Сохранено", ok: true });
+    setMsg({ text: "✓ Настройки сохранены", ok: true });
     setTimeout(() => setMsg(null), 2000);
   };
 
-  const runCycle = async () => {
-    setRunning(true); setMsg(null);
-    const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "run_scalp" }) });
-    const d = await r.json();
-    if (d.ok) {
-      const sold = d.sold?.length || 0;
-      const bought = d.bought?.length || 0;
-      setMsg({ text: `✓ Куплено: ${bought} · Продано: ${sold}`, ok: true });
-      await loadStatus();
-    } else setMsg({ text: d.error || d.reason || "Ошибка", ok: false });
-    setRunning(false);
-    setTimeout(() => setMsg(null), 5000);
+  const runOnce = async () => {
+    setMsg(null);
+    triggerScalpCycle();
+    setTimeout(() => { loadStatus(); loadHistory(); }, 3000);
   };
 
   const checkPositions = async () => {
@@ -2442,30 +2511,59 @@ function ScalperPage() {
     setTimeout(() => setMsg(null), 4000);
   };
 
+  const fmtCD = (s: number) => `${Math.floor(s/60).toString().padStart(2,"0")}:${(s%60).toString().padStart(2,"0")}`;
+
   return (
     <div className="space-y-4">
-      {/* Шапка */}
-      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
-            <Icon name="Zap" size={16} className="text-[var(--cyber-yellow)]" />
-            СКАЛЬПИНГ — БЫСТРЫЙ ДОХОД
+      {/* Шапка с таймером */}
+      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <div>
+            <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
+              <Icon name="Zap" size={16} className="text-[var(--cyber-yellow)]" />
+              СКАЛЬПЕР — БЫСТРЫЙ ДОХОД
+            </div>
+            <div className="section-label mt-0.5">Краткосрочные сделки · Авто-продажа при достижении цели %</div>
           </div>
-          <div className="section-label mt-0.5">Краткосрочные сделки · Авто-продажа при достижении цели %</div>
+          <button onClick={() => { const ne = !scalpEnabled; setScalpEnabled(ne); if (ne) { setScalpCountdown(scalpIntervalMin * 60); setTimeout(() => triggerScalpCycle(), 500); } else setScalpCountdown(0); }}
+            className={`px-4 py-2 font-orbitron text-xs font-bold border rounded-none transition-all ${scalpEnabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] hover:bg-[rgba(255,200,0,0.1)]"}`}>
+            {scalpEnabled ? "⏹ СТОП" : "⚡ СТАРТ"}
+          </button>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${enabled ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-          <div className={`w-1.5 h-1.5 rounded-full ${enabled ? "bg-[var(--cyber-yellow)] animate-pulse" : "bg-[var(--cyber-text-dim)]"}`} />
-          {enabled ? "АКТИВЕН" : "ВЫКЛЮЧЕН"}
+        {/* Интервал */}
+        <div className="flex items-center gap-2 flex-wrap mb-2">
+          <span className="section-label shrink-0">Интервал:</span>
+          {SCALP_INTERVALS.map(iv => (
+            <button key={iv.val} onClick={() => { setScalpIntervalMin(iv.val); if (scalpEnabled) setScalpCountdown(iv.val * 60); }} disabled={scalpEnabled}
+              className={`px-2.5 py-1 font-mono text-xs rounded-none border transition-all disabled:opacity-50 ${scalpIntervalMin === iv.val ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+              {iv.label}
+            </button>
+          ))}
         </div>
+        {/* Прогресс-бар таймера */}
+        {scalpEnabled && scalpCountdown > 0 && (
+          <div className="flex items-center gap-3">
+            <div className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] h-1.5 rounded-none overflow-hidden">
+              <div className="h-full transition-all duration-1000"
+                style={{ width: `${100 - (scalpCountdown / (scalpIntervalMin * 60) * 100)}%`, background: "var(--cyber-yellow)", boxShadow: "0 0 6px rgba(255,200,0,0.4)" }} />
+            </div>
+            <div className="font-orbitron text-sm font-bold text-[var(--cyber-yellow)] shrink-0">{fmtCD(scalpCountdown)}</div>
+            <div className="section-label shrink-0">до цикла</div>
+          </div>
+        )}
       </div>
 
-      {msg && <div className={`p-3 border font-mono text-xs animate-fade-in-up ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+      {(msg || scalpMsg) && (
+        <div className={`p-3 border font-mono text-xs animate-fade-in-up ${(msg || scalpMsg)!.ok ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : "border-[var(--cyber-red)] loss"}`}>
+          {(msg || scalpMsg)!.text}
+        </div>
+      )}
 
       {/* Метрики */}
       <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
         <div className="cyber-card-glow rounded-none p-3 text-center">
           <div className="font-orbitron text-xl font-bold neon-text-cyan">{scStatus?.open_trades.length || 0}</div>
-          <div className="section-label mt-0.5">Открытых позиций</div>
+          <div className="section-label mt-0.5">Открытых</div>
         </div>
         <div className="cyber-card-glow rounded-none p-3 text-center">
           <div className="font-orbitron text-xl font-bold neon-text">{scStatus?.trades_today || 0}</div>
@@ -2479,92 +2577,154 @@ function ScalperPage() {
         </div>
       </div>
 
-      {/* Настройки */}
-      <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3">
-        <div className="section-label">НАСТРОЙКИ СКАЛЬПИНГА</div>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: "Цель прибыли %", val: targetPct, set: setTargetPct, hint: "При достижении — авто-продажа" },
-            { label: "Стоп-лосс %", val: stopPct, set: setStopPct, hint: "Максимальный убыток на сделку" },
-          ].map(f => (
-            <div key={f.label}>
-              <div className="section-label text-[10px] mb-1">{f.label}</div>
-              <input value={f.val} onChange={e => f.set(e.target.value)} type="number" step="0.1" min="0.1"
-                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
-              <div className="text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{f.hint}</div>
+      {/* Вкладки */}
+      <div className="flex gap-2 animate-fade-in-up">
+        {(["main", "history"] as const).map(t => (
+          <button key={t} onClick={() => setActiveTab(t)}
+            className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${activeTab === t ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] bg-[rgba(255,200,0,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+            {t === "main" ? "⚡ ТОРГОВЛЯ" : "📋 ИСТОРИЯ"}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "main" && (<>
+        {/* Настройки */}
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3">
+          <div className="section-label">НАСТРОЙКИ</div>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Цель прибыли %", val: targetPct, set: setTargetPct },
+              { label: "Стоп-лосс %", val: stopPct, set: setStopPct },
+            ].map(f => (
+              <div key={f.label}>
+                <div className="section-label text-[10px] mb-1">{f.label}</div>
+                <input value={f.val} onChange={e => f.set(e.target.value)} type="number" step="0.1" min="0.1"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="section-label text-[10px] mb-1">Сумма на сделку ₽</div>
+            <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="100"
+              className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={saveSettings} disabled={saving} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40">
+              {saving ? "..." : "СОХРАНИТЬ"}
+            </button>
+            <button onClick={runOnce} disabled={scalpRunning} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
+              {scalpRunning ? <Spinner /> : <Icon name="Zap" size={12} />} ЦИКЛ
+            </button>
+            <button onClick={scan} disabled={scanning} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
+              {scanning ? <Spinner /> : <Icon name="Search" size={12} />} СКАН
+            </button>
+          </div>
+        </div>
+
+        {/* Кандидаты */}
+        {candidates.length > 0 && (
+          <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+            <div className="section-label mb-3">ТОП КАНДИДАТОВ</div>
+            <div className="space-y-2">
+              {candidates.map((c, i) => (
+                <div key={c.figi} className="flex items-center justify-between py-2 border-b border-[rgba(26,58,74,0.4)]" style={{ animationDelay: `${i * 40}ms` }}>
+                  <div className="flex items-center gap-3">
+                    <div className={`px-2 py-0.5 font-orbitron text-xs font-black ${c.score >= 75 ? "text-[var(--cyber-green)]" : "text-[var(--cyber-yellow)]"}`}>{c.score}</div>
+                    <div>
+                      <div className="font-mono text-sm font-bold text-[var(--cyber-text)]">{c.ticker}</div>
+                      <div className="section-label text-[10px]">RSI {c.rsi} · {c.price.toLocaleString("ru-RU")} ₽</div>
+                    </div>
+                  </div>
+                  <button onClick={async () => {
+                    const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "buy", figi: c.figi, ticker: c.ticker, lots: Math.max(1, Math.floor(parseFloat(amount) / (c.price * c.lot))), target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct) }) });
+                    const d = await r.json();
+                    setMsg({ text: d.ok ? `✓ Куплен ${c.ticker}` : d.error, ok: d.ok });
+                    loadStatus(); loadHistory();
+                  }} className="px-3 py-1 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] rounded-none hover:bg-[rgba(0,255,136,0.1)] transition-all">
+                    КУПИТЬ
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div>
-          <div className="section-label text-[10px] mb-1">Сумма на одну сделку ₽</div>
-          <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="100"
-            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => { setEnabled(!enabled); }} className={`flex-1 py-2 font-mono text-xs border rounded-none transition-all ${enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]"}`}>
-            {enabled ? "ВЫКЛЮЧИТЬ" : "ВКЛЮЧИТЬ"}
-          </button>
-          <button onClick={saveSettings} disabled={saving} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40">
-            {saving ? "..." : "СОХРАНИТЬ"}
-          </button>
-        </div>
-      </div>
+          </div>
+        )}
 
-      {/* Кнопки управления */}
-      <div className="grid grid-cols-3 gap-2 animate-fade-in-up">
-        <button onClick={scan} disabled={scanning} className="py-2.5 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
-          {scanning ? <Spinner /> : <Icon name="Search" size={12} />} СКАНИРОВАТЬ
-        </button>
-        <button onClick={checkPositions} disabled={checking} className="py-2.5 font-mono text-xs border border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] hover:bg-[rgba(255,200,0,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
-          {checking ? <Spinner /> : <Icon name="RefreshCw" size={12} />} ПРОВЕРИТЬ
-        </button>
-        <button onClick={runCycle} disabled={running} className="py-2.5 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
-          {running ? <Spinner /> : <Icon name="Zap" size={12} />} ЗАПУСТИТЬ
-        </button>
-      </div>
-
-      {/* Кандидаты для покупки */}
-      {candidates.length > 0 && (
-        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
-          <div className="section-label mb-3">ТОП КАНДИДАТОВ ДЛЯ СКАЛЬПИНГА</div>
-          <div className="space-y-2">
-            {candidates.map((c, i) => (
-              <div key={c.figi} className="flex items-center justify-between py-2 border-b border-[rgba(26,58,74,0.4)] animate-fade-in-up" style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}>
-                <div className="flex items-center gap-3">
-                  <div className={`px-2 py-0.5 font-orbitron text-xs font-black rounded-none ${c.score >= 75 ? "bg-[rgba(0,255,136,0.15)] text-[var(--cyber-green)]" : "bg-[rgba(255,200,0,0.15)] text-[var(--cyber-yellow)]"}`}>{c.score}</div>
+        {/* Открытые позиции */}
+        {scStatus && scStatus.open_trades.length > 0 && (
+          <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+            <div className="section-label mb-3 flex items-center justify-between">
+              <span>ОТКРЫТЫЕ ПОЗИЦИИ</span>
+              <button onClick={async () => {
+                setChecking(true);
+                const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "check_positions" }) });
+                const d = await r.json();
+                setMsg({ text: `✓ Проверено · закрыто: ${d.sold?.length || 0}`, ok: true });
+                loadStatus(); loadHistory(); setChecking(false);
+                setTimeout(() => setMsg(null), 3000);
+              }} disabled={checking} className="px-2 py-1 font-mono text-[10px] border border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] rounded-none hover:bg-[rgba(255,200,0,0.08)] transition-all disabled:opacity-40">
+                {checking ? "..." : "ПРОВЕРИТЬ"} 
+              </button>
+            </div>
+            <div className="space-y-2">
+              {scStatus.open_trades.map((t, i) => (
+                <div key={t.id} className="flex items-center justify-between py-2 border-b border-[rgba(26,58,74,0.4)]" style={{ animationDelay: `${i * 50}ms` }}>
                   <div>
-                    <div className="font-mono text-sm font-bold text-[var(--cyber-text)]">{c.ticker}</div>
-                    <div className="section-label text-[10px]">RSI {c.rsi} · Vol {c.volatility}% · {c.price.toLocaleString("ru-RU")} ₽</div>
+                    <div className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</div>
+                    <div className="section-label text-[10px]">{t.lots} лот · {t.buy_price.toLocaleString("ru-RU")} ₽</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-xs neon-text">+{t.target_pct}% цель</div>
+                    <div className="font-mono text-xs text-[var(--cyber-red)]">−{t.stop_pct}% стоп</div>
                   </div>
                 </div>
-                <button onClick={() => buyManual(c.figi, c.ticker, Math.max(1, Math.floor(parseFloat(amount) / (c.price * c.lot))))}
-                  className="px-3 py-1 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all">
-                  КУПИТЬ
-                </button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </>)}
 
-      {/* Открытые позиции */}
-      {scStatus && scStatus.open_trades.length > 0 && (
+      {/* История сделок */}
+      {activeTab === "history" && (
         <div className="cyber-card rounded-none p-4 animate-fade-in-up">
-          <div className="section-label mb-3">ОТКРЫТЫЕ ПОЗИЦИИ СКАЛЬПЕРА</div>
-          <div className="space-y-2">
-            {scStatus.open_trades.map((t, i) => (
-              <div key={t.id} className="cyber-card rounded-none p-3 animate-fade-in-up flex items-center justify-between" style={{ animationDelay: `${i * 50}ms`, opacity: 0 }}>
-                <div>
-                  <div className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</div>
-                  <div className="section-label text-[10px]">{t.lots} лот · {t.buy_price.toLocaleString("ru-RU")} ₽ · {t.amount.toLocaleString("ru-RU")} ₽</div>
-                </div>
-                <div className="text-right">
-                  <div className="font-mono text-xs neon-text">+{t.target_pct}% цель</div>
-                  <div className="font-mono text-xs text-[var(--cyber-red)]">−{t.stop_pct}% стоп</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="section-label mb-3">ИСТОРИЯ СДЕЛОК СКАЛЬПЕРА</div>
+          {history.length === 0 ? (
+            <div className="text-center py-8 text-[var(--cyber-text-dim)] font-mono text-xs">Сделок ещё не было</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[var(--cyber-border)]">
+                    {["Тикер", "Купил", "Продал", "P&L", "P&L %", "Статус", "Дата"].map(h => (
+                      <th key={h} className="section-label text-left py-2 pr-3 text-[10px]">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((t, i) => (
+                    <tr key={t.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(255,200,0,0.02)]">
+                      <td className="font-mono text-sm font-bold text-[var(--cyber-text)] py-2 pr-3">{t.ticker}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-3">{t.buy_price?.toLocaleString("ru-RU")} ₽</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-3">{t.sell_price ? `${t.sell_price.toLocaleString("ru-RU")} ₽` : "—"}</td>
+                      <td className={`font-mono text-xs py-2 pr-3 font-semibold ${(t.pnl || 0) >= 0 ? "profit" : "loss"}`}>
+                        {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽` : "—"}
+                      </td>
+                      <td className={`font-mono text-xs py-2 pr-3 font-semibold ${(t.pnl_pct || 0) >= 0 ? "profit" : "loss"}`}>
+                        {t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-none ${t.status === "closed" ? (t.pnl != null && t.pnl >= 0 ? "bg-[rgba(0,255,136,0.15)] text-[var(--cyber-green)]" : "bg-[rgba(255,61,113,0.15)] text-[var(--cyber-red)]") : "bg-[rgba(255,200,0,0.15)] text-[var(--cyber-yellow)]"}`}>
+                          {t.status === "closed" ? (t.pnl != null && t.pnl >= 0 ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "ОТКРЫТА"}
+                        </span>
+                      </td>
+                      <td className="font-mono text-[10px] text-[var(--cyber-text-dim)] py-2 pr-3">
+                        {t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2809,6 +2969,53 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
     setTimeout(() => setBotLastMsg(null), 6000);
   }, [botRunning2, botCycleCount]);
 
+  // ── Глобальный скальпер-таймер ───────────────────────────────────────
+  const [scalpEnabled, setScalpEnabled] = useState(false);
+  const [scalpIntervalMin, setScalpIntervalMin] = useState(10);
+  const [scalpCountdown, setScalpCountdown] = useState(0);
+  const [scalpRunning, setScalpRunning] = useState(false);
+  const [scalpMsg, setScalpMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const scalpRef = useRef(0);
+
+  useEffect(() => {
+    if (!scalpEnabled) { setScalpCountdown(0); return; }
+    const total = scalpIntervalMin * 60;
+    setScalpCountdown(c => c > 0 ? c : total);
+    const tick = setInterval(() => {
+      setScalpCountdown(prev => prev <= 1 ? total : prev - 1);
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [scalpEnabled, scalpIntervalMin]);
+
+  useEffect(() => {
+    if (!scalpEnabled || scalpCountdown !== scalpIntervalMin * 60) return;
+    if (scalpRef.current === 0) { scalpRef.current = 1; return; }
+    triggerScalpCycle();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scalpCountdown]);
+
+  const triggerScalpCycle = useCallback(async () => {
+    if (scalpRunning) return;
+    setScalpRunning(true);
+    try {
+      const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "run_scalp" }) });
+      const d = await r.json();
+      if (d.ok) {
+        const sold = d.sold?.length || 0;
+        const bought = d.bought?.length || 0;
+        if (sold > 0 || bought > 0) {
+          setScalpMsg({ text: `⚡ Скальпер: куплено ${bought}, продано ${sold}`, ok: true });
+          setBalanceRefreshKey(k => k + 1);
+        }
+      } else if (!d.ok && d.reason) {
+        setScalpEnabled(false);
+        setScalpMsg({ text: `⚡ Скальпер стоп: ${d.reason}`, ok: false });
+      }
+    } catch { /* skip */ }
+    setScalpRunning(false);
+    setTimeout(() => setScalpMsg(null), 5000);
+  }, [scalpRunning]);
+
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
@@ -2832,7 +3039,13 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;
       case "positions": return <LivePositionsPage />;
-      case "scalper": return <ScalperPage />;
+      case "scalper": return <ScalperPage
+        scalpEnabled={scalpEnabled} setScalpEnabled={setScalpEnabled}
+        scalpIntervalMin={scalpIntervalMin} setScalpIntervalMin={setScalpIntervalMin}
+        scalpCountdown={scalpCountdown} setScalpCountdown={setScalpCountdown}
+        scalpRunning={scalpRunning} triggerScalpCycle={triggerScalpCycle}
+        scalpMsg={scalpMsg}
+      />;
       case "referral": return <ReferralPage user={user} />;
       case "profile": return <ProfilePage user={user} />;
       case "api": return <ApiKeysPage />;
@@ -2945,16 +3158,32 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
               {activeNav?.label?.toUpperCase()}
             </div>
           </div>
-          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
-            {/* Индикатор бота */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Индикатор автобота */}
             {botEnabled && (
               <button onClick={() => setActiveSection("autobot")}
-                className="flex items-center gap-1.5 px-2 py-1 border border-[var(--cyber-green)] rounded-none">
+                className="flex items-center gap-1 px-2 py-1 border border-[var(--cyber-green)] rounded-none">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-green)] animate-pulse" />
-                <span className="font-orbitron text-xs neon-text">
+                <span className="font-orbitron text-xs neon-text hidden sm:block">
                   {Math.floor(botCountdown / 60).toString().padStart(2,"0")}:{(botCountdown % 60).toString().padStart(2,"0")}
                 </span>
               </button>
+            )}
+            {/* Индикатор скальпера */}
+            {scalpEnabled && (
+              <button onClick={() => setActiveSection("scalper")}
+                className="flex items-center gap-1 px-2 py-1 border border-[var(--cyber-yellow)] rounded-none">
+                <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-yellow)] animate-pulse" />
+                <span className="font-orbitron text-xs text-[var(--cyber-yellow)] hidden sm:block">
+                  ⚡{Math.floor(scalpCountdown / 60).toString().padStart(2,"0")}:{(scalpCountdown % 60).toString().padStart(2,"0")}
+                </span>
+              </button>
+            )}
+            {/* Уведомление скальпера */}
+            {scalpMsg && (
+              <div className={`hidden md:block font-mono text-xs px-2 py-1 border rounded-none ${scalpMsg.ok ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : "border-[var(--cyber-red)] loss"}`}>
+                {scalpMsg.text}
+              </div>
             )}
             <div className="hidden md:block font-mono text-xs text-[var(--cyber-text-dim)]">
               {time.toLocaleTimeString("ru-RU")}
