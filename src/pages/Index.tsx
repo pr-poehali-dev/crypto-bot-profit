@@ -896,7 +896,7 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
   const [toggling, setToggling] = useState(false);
 
   useEffect(() => {
-    fetch(`${TBANK_URL}?action=accounts`)
+    authFetch(`${TBANK_URL}?action=accounts`)
       .then(r => r.json())
       .then(d => { setHasToken(Array.isArray(d) && d.length > 0); })
       .catch(() => setHasToken(false));
@@ -904,21 +904,19 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
 
   const fetchBalance = useCallback(() => {
     setBalanceError(null);
-    fetch(`${TBANK_URL}?action=balance`)
+    authFetch(`${TBANK_URL}?action=balance`)
       .then(r => r.json())
       .then(d => { if (d.error) setBalanceError(d.error); else setBalance(d); })
       .catch(() => setBalanceError("Ошибка соединения"))
       .finally(() => setBalanceLoading(false));
   }, []);
 
-  // Загрузка при открытии вкладки или после цикла бота (refreshKey)
   useEffect(() => {
     if (tab !== "balance") return;
     setBalanceLoading(true);
     fetchBalance();
   }, [tab, fetchBalance, refreshKey]);
 
-  // Авто-обновление каждые 30 сек пока открыта вкладка баланса
   useEffect(() => {
     if (tab !== "balance") return;
     const t = setInterval(fetchBalance, 30000);
@@ -928,7 +926,7 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
   useEffect(() => {
     if (tab !== "autobot") return;
     setBotLoading(true);
-    fetch(`${AUTOTRADER_URL}?action=status`)
+    authFetch(`${AUTOTRADER_URL}?action=status`)
       .then(r => r.json())
       .then(d => setBotStatus(d))
       .catch(() => {})
@@ -939,8 +937,8 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
     if (!botStatus) return;
     setToggling(true);
     const newEnabled = !botStatus.enabled;
-    await fetch(AUTOTRADER_URL, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+    await authFetch(AUTOTRADER_URL, {
+      method: "POST",
       body: JSON.stringify({ action: "save_settings", mode: botStatus.mode, fixed_amount: botStatus.fixed_amount, stop_pct: 3, enabled: newEnabled }),
     });
     setBotStatus(s => s ? { ...s, enabled: newEnabled } : s);
@@ -949,7 +947,7 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
 
   const runNow = async () => {
     setToggling(true);
-    const r = await fetch(AUTOTRADER_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "run_once" }) });
+    const r = await authFetch(AUTOTRADER_URL, { method: "POST", body: JSON.stringify({ action: "run_once" }) });
     const d = await r.json();
     setBotStatus(s => s ? { ...s, last_run: d.run_at || s.last_run, last_trades: d.results || s.last_trades, daily_pnl: d.daily_pnl ?? s.daily_pnl } : s);
     setToggling(false);
@@ -1466,7 +1464,7 @@ function AutoBotPage({
 
   const loadStatus = useCallback(async () => {
     try {
-      const r = await fetch(`${AUTOTRADER_URL}?action=status`);
+      const r = await authFetch(`${AUTOTRADER_URL}?action=status`);
       const d: BotStatus = await r.json();
       setStatus(d);
       setMode(d.mode);
@@ -1478,7 +1476,7 @@ function AutoBotPage({
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
   const runOnce = async () => {
-    setBotCountdown(intervalMin * 60); // сброс таймера
+    setBotCountdown(intervalMin * 60);
     triggerBotCycle();
     loadStatus();
   };
@@ -1489,8 +1487,8 @@ function AutoBotPage({
     if (newEnabled) { setBotCountdown(intervalMin * 60); cycleRef2.current = 0; }
     else { setBotCountdown(0); }
     try {
-      const r = await fetch(AUTOTRADER_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const r = await authFetch(AUTOTRADER_URL, {
+        method: "POST",
         body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled }),
       });
       const d = await r.json();
@@ -1505,8 +1503,8 @@ function AutoBotPage({
   const saveSettings = async () => {
     setSaving(true);
     try {
-      const r = await fetch(AUTOTRADER_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const r = await authFetch(AUTOTRADER_URL, {
+        method: "POST",
         body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled }),
       });
       const d = await r.json();
@@ -2248,8 +2246,8 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
     if (botRunning2) return;
     setBotRunning2(true);
     try {
-      const r = await fetch(AUTOTRADER_URL, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const r = await authFetch(AUTOTRADER_URL, {
+        method: "POST",
         body: JSON.stringify({ action: "run_once" }),
       });
       const d = await r.json();
