@@ -8,7 +8,16 @@ TBANK_BASE = "https://invest-public-api.tinkoff.ru/rest"
 TBANK_H = {"Authorization": f"Bearer {TBANK_TOKEN}", "Content-Type": "application/json"}
 DB_URL = os.environ.get("DATABASE_URL", "")
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p28097026_crypto_bot_profit")
-CORS = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type"}
+CORS = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, X-Session-Id"}
+
+def check_session(session_id: str) -> bool:
+    if not session_id or len(session_id) < 32: return False
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    cur.execute(f"SELECT id FROM {SCHEMA}.sessions WHERE id = %s AND expires_at > NOW()", (session_id,))
+    ok = cur.fetchone() is not None
+    cur.close(); conn.close()
+    return ok
 
 def resp(body, code=200):
     return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, default=str)}
@@ -153,7 +162,13 @@ def handler(event: dict, context) -> dict:
 
     method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}
+    headers = event.get("headers") or {}
     action = params.get("action", "")
+
+    # ── Проверка сессии ─────────────────────────────────────────────────────
+    session_id = headers.get("x-session-id") or headers.get("X-Session-Id") or ""
+    if not check_session(session_id):
+        return resp({"error": "Не авторизован. Войдите в систему."}, 401)
 
     if not TBANK_TOKEN:
         return resp({"error": "TBANK_INVEST_TOKEN не задан"}, 500)

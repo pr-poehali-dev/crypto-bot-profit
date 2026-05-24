@@ -4,16 +4,28 @@
 """
 import os, json, requests
 from datetime import datetime, timedelta, timezone
+import psycopg2
 
 TOKEN = os.environ.get("TBANK_INVEST_TOKEN", "")
 BASE = "https://invest-public-api.tinkoff.ru/rest"
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+DB_URL = os.environ.get("DATABASE_URL", "")
+SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p28097026_crypto_bot_profit")
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-User-Id",
+    "Access-Control-Allow-Headers": "Content-Type, X-Session-Id",
 }
+
+def check_session(session_id: str) -> bool:
+    if not session_id or len(session_id) < 32: return False
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    cur.execute(f"SELECT id FROM {SCHEMA}.sessions WHERE id = %s AND expires_at > NOW()", (session_id,))
+    ok = cur.fetchone() is not None
+    cur.close(); conn.close()
+    return ok
 
 def resp(body, code=200):
     return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, default=str)}
@@ -32,6 +44,11 @@ def money(m):
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
+
+    headers_in = event.get("headers") or {}
+    session_id = headers_in.get("x-session-id") or headers_in.get("X-Session-Id") or ""
+    if not check_session(session_id):
+        return resp({"error": "Не авторизован"}, 401)
 
     method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}

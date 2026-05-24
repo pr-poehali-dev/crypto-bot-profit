@@ -6,6 +6,111 @@ const PAYMENT_URL = "https://functions.poehali.dev/373f750f-9364-43a8-8020-4f3f2
 const TRADE_URL = "https://functions.poehali.dev/5af36d81-ec5d-4557-996a-036e428dad76";
 const TBANK_URL = "https://functions.poehali.dev/fb80b07e-125f-40dc-8244-d902c6b0731a";
 const AUTOTRADER_URL = "https://functions.poehali.dev/f372165e-74bb-42e7-9a58-5830d08d29fb";
+const AUTH_URL = "https://functions.poehali.dev/caebbeb5-e41f-40ce-9f6c-3a86058c804d";
+
+// Хелпер — все запросы с токеном сессии
+const SESSION_KEY = "kb_session";
+function getSession() { return localStorage.getItem(SESSION_KEY) || ""; }
+function setSession(id: string) { localStorage.setItem(SESSION_KEY, id); }
+function clearSession() { localStorage.removeItem(SESSION_KEY); }
+function authFetch(url: string, opts: RequestInit = {}) {
+  const sid = getSession();
+  return fetch(url, {
+    ...opts,
+    headers: { ...(opts.headers || {}), "X-Session-Id": sid, "Content-Type": "application/json" },
+  });
+}
+
+/* ===== LOGIN PAGE ===== */
+function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: string; role: string }) => void }) {
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [showPw, setShowPw] = useState(false);
+
+  const login = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true); setError("");
+    try {
+      const r = await fetch(AUTH_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "login", username, password }),
+      });
+      const d = await r.json();
+      if (d.ok) { onLogin(d.session_id, d.user); }
+      else setError(d.error || "Неверный логин или пароль");
+    } catch { setError("Ошибка соединения"); }
+    setLoading(false);
+  };
+
+  return (
+    <div className="cyber-bg min-h-screen flex items-center justify-center p-4" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
+      <div className="w-full max-w-sm">
+        {/* Логотип */}
+        <div className="text-center mb-8 animate-fade-in-up">
+          <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center"
+            style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 30px rgba(0,255,136,0.4)" }}>
+            <Icon name="Bot" size={32} style={{ color: "var(--cyber-green)" }} />
+          </div>
+          <div className="font-orbitron text-2xl font-black neon-text mb-1">КИБЕРБОТ</div>
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)] tracking-widest">CRYPTO TRADING SYSTEM</div>
+        </div>
+
+        {/* Форма */}
+        <form onSubmit={login} className="cyber-card-glow rounded-none p-6 space-y-4 animate-fade-in-up" style={{ animationDelay: "100ms", opacity: 0 }}>
+          <div className="section-label text-center mb-2">ВХОД В СИСТЕМУ</div>
+
+          {error && (
+            <div className="border border-[var(--cyber-red)] p-3 font-mono text-xs text-[var(--cyber-red)] text-center animate-fade-in-up">
+              {error}
+            </div>
+          )}
+
+          <div>
+            <div className="section-label mb-1.5">Логин</div>
+            <input
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              placeholder="admin"
+              autoComplete="username"
+              className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2.5 rounded-none outline-none focus:border-[var(--cyber-green)] transition-colors"
+            />
+          </div>
+
+          <div>
+            <div className="section-label mb-1.5">Пароль</div>
+            <div className="relative">
+              <input
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                type={showPw ? "text" : "password"}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2.5 pr-10 rounded-none outline-none focus:border-[var(--cyber-green)] transition-colors"
+              />
+              <button type="button" onClick={() => setShowPw(!showPw)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--cyber-text-dim)] hover:text-[var(--cyber-text)]">
+                <Icon name={showPw ? "EyeOff" : "Eye"} size={14} />
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" disabled={loading || !password}
+            className="w-full py-3 font-orbitron text-sm font-bold tracking-widest rounded-none transition-all border disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            style={{ borderColor: "var(--cyber-green)", color: "var(--cyber-green)", background: loading ? "rgba(0,255,136,0.1)" : "transparent" }}>
+            {loading ? <><div className="w-4 h-4 border border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin" /><span>ВХОД...</span></> : "ВОЙТИ В СИСТЕМУ"}
+          </button>
+        </form>
+
+        <div className="text-center mt-4 font-mono text-[10px] text-[var(--cyber-text-dim)] animate-fade-in-up" style={{ animationDelay: "200ms", opacity: 0 }}>
+          🔒 Защищённое соединение · КиберБот v4
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const NAV_ITEMS = [
   { id: "dashboard", icon: "LayoutDashboard", label: "Дашборд" },
@@ -1959,8 +2064,40 @@ function GenericPage({ title, icon }: { title: string; icon: string }) {
   );
 }
 
-/* ===== ROOT ===== */
+/* ===== ROOT WRAPPER — проверка авторизации ===== */
 export default function Index() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [user, setUser] = useState<{ username: string; role: string } | null>(null);
+
+  useEffect(() => {
+    const sid = getSession();
+    if (!sid) { setAuthChecked(true); return; }
+    fetch(`${AUTH_URL}?action=check`, { headers: { "X-Session-Id": sid, "Content-Type": "application/json" } })
+      .then(r => r.json())
+      .then(d => { if (d.ok) setUser(d.user); else clearSession(); })
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  const handleLogin = (sid: string, u: { username: string; role: string }) => {
+    setSession(sid); setUser(u);
+  };
+
+  if (!authChecked) return (
+    <div className="cyber-bg min-h-screen flex items-center justify-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin" />
+        <div className="font-mono text-xs text-[var(--cyber-text-dim)]">ИНИЦИАЛИЗАЦИЯ...</div>
+      </div>
+    </div>
+  );
+
+  if (!user) return <LoginPage onLogin={handleLogin} />;
+  return <AppShell user={user} onLogout={() => { clearSession(); setUser(null); }} />;
+}
+
+/* ===== APP SHELL — основное приложение ===== */
+function AppShell({ user, onLogout }: { user: { username: string; role: string }; onLogout: () => void }) {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [botRunning, setBotRunning] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -2121,9 +2258,9 @@ export default function Index() {
           ))}
         </nav>
 
-        {/* Статус бота */}
+        {/* Статус бота + выход */}
         {sidebarOpen && (
-          <div className="p-3 border-t border-[var(--cyber-border)]">
+          <div className="p-3 border-t border-[var(--cyber-border)] space-y-2">
             <div className="cyber-card rounded-none p-2.5">
               <div className="flex items-center gap-2 mb-0.5">
                 <div className={`status-dot ${botEnabled ? "online" : "offline"}`} />
@@ -2133,6 +2270,11 @@ export default function Index() {
               </div>
               <div className="font-mono text-[10px] text-[var(--cyber-text-dim)]">{time.toLocaleTimeString("ru-RU")} МСК</div>
             </div>
+            <button onClick={onLogout}
+              className="w-full flex items-center gap-2 px-2 py-1.5 border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-red)] hover:text-[var(--cyber-red)] rounded-none transition-all font-mono text-xs">
+              <Icon name="LogOut" size={12} />
+              <span>Выйти · {user.username}</span>
+            </button>
           </div>
         )}
       </aside>
