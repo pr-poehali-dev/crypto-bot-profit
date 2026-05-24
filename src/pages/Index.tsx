@@ -3038,7 +3038,8 @@ export default function Index() {
 function AppShell({ user, onLogout }: { user: { username: string; role: string }; onLogout: () => void }) {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [botRunning, setBotRunning] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // На мобиле сайдбар закрыт по умолчанию
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [time, setTime] = useState(new Date());
 
   // Счётчик для принудительного обновления баланса Т-Банк
@@ -3216,7 +3217,12 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         fixed md:relative z-50 md:z-auto h-full md:h-auto
         ${sidebarOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0 md:w-14"}
         flex-shrink-0 transition-all duration-300 flex flex-col
-      `} style={{ background: "var(--cyber-surface)", borderRight: "1px solid var(--cyber-border)" }}>
+      `} style={{
+        background: "var(--cyber-surface)",
+        borderRight: "1px solid var(--cyber-border)",
+        touchAction: "pan-y",
+        overscrollBehavior: "contain",
+      }}>
 
         {/* Логотип */}
         <div className="p-4 border-b border-[var(--cyber-border)] flex items-center justify-between">
@@ -3273,8 +3279,8 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         )}
       </aside>
 
-      {/* Основной контент */}
-      <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
+      {/* Основной контент — запрещаем горизонтальный свайп */}
+      <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0" style={{ touchAction: "pan-y", overscrollBehavior: "none" }}>
 
         {/* Хедер */}
         <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
@@ -3324,7 +3330,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         </header>
 
         {/* Контент */}
-        <main className="flex-1 p-3 md:p-5 overflow-auto">{renderContent()}</main>
+        <main className="flex-1 p-3 md:p-5 overflow-auto" style={{ touchAction: "pan-y", overscrollBehavior: "contain" }}>{renderContent()}</main>
       </div>
 
       {/* Нижняя навигация — только на мобиле */}
