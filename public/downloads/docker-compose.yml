@@ -1,0 +1,33 @@
+version: '3.8'
+
+# КиберБот — Docker Compose
+# Запуск: docker-compose up -d
+# Остановка: docker-compose down
+# Логи: docker-compose logs -f
+
+services:
+  kiberbot:
+    image: python:3.11-slim
+    container_name: kiberbot_scheduler
+    restart: always
+    working_dir: /app
+    volumes:
+      - ./kiberbot.py:/app/kiberbot.py:ro
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: >
+      bash -c "
+        pip install requests schedule --quiet &&
+        python kiberbot.py
+      "
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('https://functions.poehali.dev/682bcb35-b68e-46b3-931e-ae304700cefd', timeout=5)"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
