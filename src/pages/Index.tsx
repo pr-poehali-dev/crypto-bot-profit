@@ -7,6 +7,7 @@ const TRADE_URL = "https://functions.poehali.dev/5af36d81-ec5d-4557-996a-036e428
 const TBANK_URL = "https://functions.poehali.dev/fb80b07e-125f-40dc-8244-d902c6b0731a";
 const AUTOTRADER_URL = "https://functions.poehali.dev/f372165e-74bb-42e7-9a58-5830d08d29fb";
 const AUTH_URL = "https://functions.poehali.dev/caebbeb5-e41f-40ce-9f6c-3a86058c804d";
+const SCALPER_URL = "https://functions.poehali.dev/069c26ed-4e40-418f-a3f1-c49541d79bf9";
 
 // Хелпер — все запросы с токеном сессии
 const SESSION_KEY = "kb_session";
@@ -21,26 +22,48 @@ function authFetch(url: string, opts: RequestInit = {}) {
   });
 }
 
-/* ===== LOGIN PAGE ===== */
+/* ===== AUTH PAGES (Login + Register) ===== */
+function AuthInput({ label, value, onChange, type = "text", placeholder = "", autoComplete = "" }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; autoComplete?: string;
+}) {
+  const [show, setShow] = useState(false);
+  const isPw = type === "password";
+  return (
+    <div>
+      <div className="section-label mb-1.5">{label}</div>
+      <div className="relative">
+        <input value={value} onChange={e => onChange(e.target.value)} type={isPw && !show ? "password" : "text"}
+          placeholder={placeholder} autoComplete={autoComplete}
+          className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2.5 pr-10 rounded-none outline-none focus:border-[var(--cyber-green)] transition-colors" />
+        {isPw && <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--cyber-text-dim)]"><Icon name={show ? "EyeOff" : "Eye"} size={14} /></button>}
+      </div>
+    </div>
+  );
+}
+
 function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: string; role: string }) => void }) {
-  const [username, setUsername] = useState("admin");
+  const [tab, setTab] = useState<"login" | "register">("login");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
+  const [refCode, setRefCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showPw, setShowPw] = useState(false);
+  const [success, setSuccess] = useState("");
 
-  const login = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setSuccess("");
     try {
-      const r = await fetch(AUTH_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "login", username, password }),
-      });
+      const body = tab === "login"
+        ? { action: "login", username, password }
+        : { action: "register", username, password, email, ref_code: refCode };
+      const r = await fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
-      if (d.ok) { onLogin(d.session_id, d.user); }
-      else setError(d.error || "Неверный логин или пароль");
+      if (d.ok) {
+        if (tab === "register") setSuccess(`✓ Аккаунт создан! Твой реф-код: ${d.ref_code}`);
+        setTimeout(() => onLogin(d.session_id, d.user), tab === "register" ? 1500 : 0);
+      } else setError(d.error || "Ошибка");
     } catch { setError("Ошибка соединения"); }
     setLoading(false);
   };
@@ -48,64 +71,48 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
   return (
     <div className="cyber-bg min-h-screen flex items-center justify-center p-4" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
       <div className="w-full max-w-sm">
-        {/* Логотип */}
-        <div className="text-center mb-8 animate-fade-in-up">
-          <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center"
-            style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 30px rgba(0,255,136,0.4)" }}>
+        <div className="text-center mb-6 animate-fade-in-up">
+          <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center" style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 30px rgba(0,255,136,0.4)" }}>
             <Icon name="Bot" size={32} style={{ color: "var(--cyber-green)" }} />
           </div>
           <div className="font-orbitron text-2xl font-black neon-text mb-1">КИБЕРБОТ</div>
           <div className="font-mono text-xs text-[var(--cyber-text-dim)] tracking-widest">CRYPTO TRADING SYSTEM</div>
         </div>
 
-        {/* Форма */}
-        <form onSubmit={login} className="cyber-card-glow rounded-none p-6 space-y-4 animate-fade-in-up" style={{ animationDelay: "100ms", opacity: 0 }}>
-          <div className="section-label text-center mb-2">ВХОД В СИСТЕМУ</div>
+        {/* Переключатель */}
+        <div className="flex mb-4 border border-[var(--cyber-border)] rounded-none overflow-hidden animate-fade-in-up">
+          {(["login", "register"] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); setError(""); setSuccess(""); }}
+              className={`flex-1 py-2 font-mono text-xs transition-all ${tab === t ? "bg-[rgba(0,255,136,0.1)] text-[var(--cyber-green)]" : "text-[var(--cyber-text-dim)]"}`}>
+              {t === "login" ? "ВОЙТИ" : "РЕГИСТРАЦИЯ"}
+            </button>
+          ))}
+        </div>
 
-          {error && (
-            <div className="border border-[var(--cyber-red)] p-3 font-mono text-xs text-[var(--cyber-red)] text-center animate-fade-in-up">
-              {error}
+        <form onSubmit={submit} className="cyber-card-glow rounded-none p-5 space-y-3 animate-fade-in-up">
+          {error && <div className="border border-[var(--cyber-red)] p-2.5 font-mono text-xs text-[var(--cyber-red)] text-center">{error}</div>}
+          {success && <div className="border border-[var(--cyber-green)] p-2.5 font-mono text-xs neon-text text-center">{success}</div>}
+
+          <AuthInput label="Логин" value={username} onChange={setUsername} placeholder="raziklon" autoComplete="username" />
+          <AuthInput label="Пароль" value={password} onChange={setPassword} type="password" placeholder="••••••••" autoComplete={tab === "login" ? "current-password" : "new-password"} />
+
+          {tab === "register" && (<>
+            <AuthInput label="Email (необязательно)" value={email} onChange={setEmail} placeholder="your@email.com" autoComplete="email" />
+            <AuthInput label="Реферальный код (необязательно)" value={refCode} onChange={setRefCode} placeholder="RAZIKLON" />
+            <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed p-2 border border-[var(--cyber-border)]">
+              Регистрируясь, ты автоматически становишься партнёром КиберБот и получаешь свой реф-код для приглашения других.
             </div>
-          )}
+          </>)}
 
-          <div>
-            <div className="section-label mb-1.5">Логин</div>
-            <input
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="admin"
-              autoComplete="username"
-              className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2.5 rounded-none outline-none focus:border-[var(--cyber-green)] transition-colors"
-            />
-          </div>
-
-          <div>
-            <div className="section-label mb-1.5">Пароль</div>
-            <div className="relative">
-              <input
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                type={showPw ? "text" : "password"}
-                placeholder="••••••••"
-                autoComplete="current-password"
-                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2.5 pr-10 rounded-none outline-none focus:border-[var(--cyber-green)] transition-colors"
-              />
-              <button type="button" onClick={() => setShowPw(!showPw)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--cyber-text-dim)] hover:text-[var(--cyber-text)]">
-                <Icon name={showPw ? "EyeOff" : "Eye"} size={14} />
-              </button>
-            </div>
-          </div>
-
-          <button type="submit" disabled={loading || !password}
-            className="w-full py-3 font-orbitron text-sm font-bold tracking-widest rounded-none transition-all border disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          <button type="submit" disabled={loading || !username || !password}
+            className="w-full py-3 font-orbitron text-sm font-bold rounded-none transition-all border disabled:opacity-40 flex items-center justify-center gap-2"
             style={{ borderColor: "var(--cyber-green)", color: "var(--cyber-green)", background: loading ? "rgba(0,255,136,0.1)" : "transparent" }}>
-            {loading ? <><div className="w-4 h-4 border border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin" /><span>ВХОД...</span></> : "ВОЙТИ В СИСТЕМУ"}
+            {loading ? <><div className="w-4 h-4 border border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin" /><span>...</span></> : tab === "login" ? "ВОЙТИ В СИСТЕМУ" : "СОЗДАТЬ АККАУНТ"}
           </button>
         </form>
 
-        <div className="text-center mt-4 font-mono text-[10px] text-[var(--cyber-text-dim)] animate-fade-in-up" style={{ animationDelay: "200ms", opacity: 0 }}>
-          🔒 Защищённое соединение · КиберБот v4
+        <div className="text-center mt-3 font-mono text-[10px] text-[var(--cyber-text-dim)]">
+          🔒 Защищённое соединение · КиберБот v5
         </div>
       </div>
     </div>
@@ -125,6 +132,9 @@ const NAV_ITEMS = [
   { id: "signals", icon: "Radio", label: "Сигналы" },
   { id: "risk", icon: "Shield", label: "Риск-менедж" },
   { id: "alerts", icon: "Bell", label: "Алерты" },
+  { id: "scalper", icon: "Zap", label: "Скальпинг" },
+  { id: "referral", icon: "Users", label: "Рефералы" },
+  { id: "profile", icon: "User", label: "Профиль" },
   { id: "api", icon: "Key", label: "API Ключи" },
   { id: "settings", icon: "Settings", label: "Настройки" },
 ];
@@ -2254,6 +2264,444 @@ function SettingsPage({ user, onLogout }: { user: { username: string; role: stri
   );
 }
 
+/* ===== PROFILE PAGE ===== */
+function ProfilePage({ user }: { user: { username: string; role: string } }) {
+  const [profile, setProfile] = useState<{ ref_code: string; has_tbank_token: boolean; has_binance_key: boolean; email: string; plan: string } | null>(null);
+  const [tbankToken, setTbankToken] = useState("");
+  const [binanceKey, setBinanceKey] = useState("");
+  const [binanceSec, setBinanceSec] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    authFetch(`${AUTH_URL}?action=profile`).then(r => r.json()).then(d => { if (d.ok) setProfile(d.user); });
+  }, []);
+
+  const saveTokens = async () => {
+    setSaving(true);
+    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "save_tokens", tbank_token: tbankToken, binance_api_key: binanceKey, binance_secret_key: binanceSec }) });
+    const d = await r.json();
+    setMsg({ text: d.ok ? "✓ Токены сохранены" : d.error, ok: d.ok });
+    if (d.ok) { setTbankToken(""); setBinanceKey(""); setBinanceSec(""); authFetch(`${AUTH_URL}?action=profile`).then(r => r.json()).then(d2 => { if (d2.ok) setProfile(d2.user); }); }
+    setSaving(false);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  return (
+    <div className="space-y-4 max-w-lg">
+      {/* Профиль */}
+      <div className="cyber-card-glow rounded-none p-5 animate-fade-in-up">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-12 h-12 flex items-center justify-center" style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 15px rgba(0,255,136,0.3)" }}>
+            <Icon name="User" size={22} style={{ color: "var(--cyber-green)" }} />
+          </div>
+          <div>
+            <div className="font-orbitron text-base font-bold neon-text">{user.username.toUpperCase()}</div>
+            <div className="section-label">{user.role === "admin" ? "Администратор" : "Пользователь"} · {profile?.plan?.toUpperCase() || "FREE"}</div>
+          </div>
+        </div>
+        {profile && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="cyber-card rounded-none p-3">
+              <div className="section-label text-[10px] mb-1">Т-Банк токен</div>
+              <div className={`font-mono text-sm font-semibold ${profile.has_tbank_token ? "neon-text" : "text-[var(--cyber-red)]"}`}>
+                {profile.has_tbank_token ? "✓ Подключён" : "✗ Не добавлен"}
+              </div>
+            </div>
+            <div className="cyber-card rounded-none p-3">
+              <div className="section-label text-[10px] mb-1">Binance API</div>
+              <div className={`font-mono text-sm font-semibold ${profile.has_binance_key ? "neon-text" : "text-[var(--cyber-red)]"}`}>
+                {profile.has_binance_key ? "✓ Подключён" : "✗ Не добавлен"}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Токены */}
+      {msg && <div className={`p-3 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+      <div className="cyber-card rounded-none p-5 space-y-3 animate-fade-in-up">
+        <div className="section-label">ПОДКЛЮЧИТЬ ТОКЕНЫ И КЛЮЧИ</div>
+        <div>
+          <div className="section-label text-[10px] mb-1.5">Токен Т-Банк Invest</div>
+          <div className="flex gap-2">
+            <input value={tbankToken} onChange={e => setTbankToken(e.target.value)} type="password" placeholder="t.xxxxxxxxxxxxxxxx"
+              className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)]" />
+          </div>
+          <div className="text-[10px] text-[var(--cyber-text-dim)] mt-1">invest.tbank.ru → Настройки → Токен для Open API</div>
+        </div>
+        <div>
+          <div className="section-label text-[10px] mb-1.5">Binance API Key</div>
+          <input value={binanceKey} onChange={e => setBinanceKey(e.target.value)} type="password" placeholder="API Key"
+            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)]" />
+        </div>
+        <div>
+          <div className="section-label text-[10px] mb-1.5">Binance Secret Key</div>
+          <input value={binanceSec} onChange={e => setBinanceSec(e.target.value)} type="password" placeholder="Secret Key"
+            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)]" />
+        </div>
+        <button onClick={saveTokens} disabled={saving || (!tbankToken && !binanceKey && !binanceSec)}
+          className="w-full py-2.5 font-orbitron text-xs font-bold border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+          {saving ? <><Spinner /><span>СОХРАНЕНИЕ...</span></> : "ПРИМЕНИТЬ ТОКЕНЫ"}
+        </button>
+      </div>
+
+      {/* Реф-код */}
+      {profile?.ref_code && (
+        <div className="cyber-card rounded-none p-4 border border-[rgba(0,212,255,0.2)] animate-fade-in-up">
+          <div className="section-label mb-2">МОЙ РЕФЕРАЛЬНЫЙ КОД</div>
+          <div className="flex items-center gap-3">
+            <div className="font-orbitron text-xl font-black neon-text-cyan">{profile.ref_code}</div>
+            <button onClick={() => navigator.clipboard.writeText(profile.ref_code)}
+              className="px-3 py-1 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] rounded-none hover:bg-[rgba(0,212,255,0.08)] transition-all flex items-center gap-1">
+              <Icon name="Copy" size={11} /> Копировать
+            </button>
+          </div>
+          <div className="text-[11px] text-[var(--cyber-text-dim)] mt-2">Поделись кодом — получай % с каждой сделки приглашённых</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===== SCALPER PAGE ===== */
+function ScalperPage() {
+  const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string }[]; trades_today: number; pnl_today: number; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean } } | null>(null);
+  const [candidates, setCandidates] = useState<{ figi: string; ticker: string; name: string; score: number; rsi: number; volatility: number; price: number; lot: number }[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [targetPct, setTargetPct] = useState("1.0");
+  const [stopPct, setStopPct] = useState("2.0");
+  const [amount, setAmount] = useState("1000");
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    const r = await authFetch(`${SCALPER_URL}?action=status`);
+    const d = await r.json();
+    if (!d.error) {
+      setScStatus(d);
+      setTargetPct(String(d.settings.target_pct));
+      setStopPct(String(d.settings.stop_pct));
+      setAmount(String(d.settings.amount));
+      setEnabled(d.settings.enabled);
+    }
+  }, []);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const scan = async () => {
+    setScanning(true); setCandidates([]);
+    const r = await authFetch(`${SCALPER_URL}?action=scan`);
+    const d = await r.json();
+    setCandidates(d.candidates || []);
+    setScanning(false);
+  };
+
+  const saveSettings = async () => {
+    setSaving(true);
+    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled }) });
+    await loadStatus();
+    setSaving(false);
+    setMsg({ text: "✓ Сохранено", ok: true });
+    setTimeout(() => setMsg(null), 2000);
+  };
+
+  const runCycle = async () => {
+    setRunning(true); setMsg(null);
+    const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "run_scalp" }) });
+    const d = await r.json();
+    if (d.ok) {
+      const sold = d.sold?.length || 0;
+      const bought = d.bought?.length || 0;
+      setMsg({ text: `✓ Куплено: ${bought} · Продано: ${sold}`, ok: true });
+      await loadStatus();
+    } else setMsg({ text: d.error || d.reason || "Ошибка", ok: false });
+    setRunning(false);
+    setTimeout(() => setMsg(null), 5000);
+  };
+
+  const checkPositions = async () => {
+    setChecking(true);
+    const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "check_positions" }) });
+    const d = await r.json();
+    const sold = d.sold?.length || 0;
+    setMsg({ text: sold > 0 ? `✓ Закрыто ${sold} позиций` : "Позиции проверены — нет сигналов на продажу", ok: true });
+    await loadStatus();
+    setChecking(false);
+    setTimeout(() => setMsg(null), 4000);
+  };
+
+  const buyManual = async (figi: string, ticker: string, lots: number) => {
+    const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "buy", figi, ticker, lots, target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct) }) });
+    const d = await r.json();
+    setMsg({ text: d.ok ? `✓ Куплен ${ticker} · ${d.price?.toLocaleString("ru-RU")} ₽` : d.error, ok: d.ok });
+    await loadStatus();
+    setTimeout(() => setMsg(null), 4000);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Шапка */}
+      <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
+            <Icon name="Zap" size={16} className="text-[var(--cyber-yellow)]" />
+            СКАЛЬПИНГ — БЫСТРЫЙ ДОХОД
+          </div>
+          <div className="section-label mt-0.5">Краткосрочные сделки · Авто-продажа при достижении цели %</div>
+        </div>
+        <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${enabled ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${enabled ? "bg-[var(--cyber-yellow)] animate-pulse" : "bg-[var(--cyber-text-dim)]"}`} />
+          {enabled ? "АКТИВЕН" : "ВЫКЛЮЧЕН"}
+        </div>
+      </div>
+
+      {msg && <div className={`p-3 border font-mono text-xs animate-fade-in-up ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+
+      {/* Метрики */}
+      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-xl font-bold neon-text-cyan">{scStatus?.open_trades.length || 0}</div>
+          <div className="section-label mt-0.5">Открытых позиций</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-xl font-bold neon-text">{scStatus?.trades_today || 0}</div>
+          <div className="section-label mt-0.5">Сделок сегодня</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className={`font-orbitron text-xl font-bold ${(scStatus?.pnl_today || 0) >= 0 ? "neon-text" : "loss"}`}>
+            {(scStatus?.pnl_today || 0) >= 0 ? "+" : ""}{(scStatus?.pnl_today || 0).toFixed(0)} ₽
+          </div>
+          <div className="section-label mt-0.5">P&L сегодня</div>
+        </div>
+      </div>
+
+      {/* Настройки */}
+      <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3">
+        <div className="section-label">НАСТРОЙКИ СКАЛЬПИНГА</div>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: "Цель прибыли %", val: targetPct, set: setTargetPct, hint: "При достижении — авто-продажа" },
+            { label: "Стоп-лосс %", val: stopPct, set: setStopPct, hint: "Максимальный убыток на сделку" },
+          ].map(f => (
+            <div key={f.label}>
+              <div className="section-label text-[10px] mb-1">{f.label}</div>
+              <input value={f.val} onChange={e => f.set(e.target.value)} type="number" step="0.1" min="0.1"
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+              <div className="text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{f.hint}</div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="section-label text-[10px] mb-1">Сумма на одну сделку ₽</div>
+          <input value={amount} onChange={e => setAmount(e.target.value)} type="number" min="100"
+            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => { setEnabled(!enabled); }} className={`flex-1 py-2 font-mono text-xs border rounded-none transition-all ${enabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]"}`}>
+            {enabled ? "ВЫКЛЮЧИТЬ" : "ВКЛЮЧИТЬ"}
+          </button>
+          <button onClick={saveSettings} disabled={saving} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40">
+            {saving ? "..." : "СОХРАНИТЬ"}
+          </button>
+        </div>
+      </div>
+
+      {/* Кнопки управления */}
+      <div className="grid grid-cols-3 gap-2 animate-fade-in-up">
+        <button onClick={scan} disabled={scanning} className="py-2.5 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
+          {scanning ? <Spinner /> : <Icon name="Search" size={12} />} СКАНИРОВАТЬ
+        </button>
+        <button onClick={checkPositions} disabled={checking} className="py-2.5 font-mono text-xs border border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] hover:bg-[rgba(255,200,0,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
+          {checking ? <Spinner /> : <Icon name="RefreshCw" size={12} />} ПРОВЕРИТЬ
+        </button>
+        <button onClick={runCycle} disabled={running} className="py-2.5 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1">
+          {running ? <Spinner /> : <Icon name="Zap" size={12} />} ЗАПУСТИТЬ
+        </button>
+      </div>
+
+      {/* Кандидаты для покупки */}
+      {candidates.length > 0 && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-3">ТОП КАНДИДАТОВ ДЛЯ СКАЛЬПИНГА</div>
+          <div className="space-y-2">
+            {candidates.map((c, i) => (
+              <div key={c.figi} className="flex items-center justify-between py-2 border-b border-[rgba(26,58,74,0.4)] animate-fade-in-up" style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}>
+                <div className="flex items-center gap-3">
+                  <div className={`px-2 py-0.5 font-orbitron text-xs font-black rounded-none ${c.score >= 75 ? "bg-[rgba(0,255,136,0.15)] text-[var(--cyber-green)]" : "bg-[rgba(255,200,0,0.15)] text-[var(--cyber-yellow)]"}`}>{c.score}</div>
+                  <div>
+                    <div className="font-mono text-sm font-bold text-[var(--cyber-text)]">{c.ticker}</div>
+                    <div className="section-label text-[10px]">RSI {c.rsi} · Vol {c.volatility}% · {c.price.toLocaleString("ru-RU")} ₽</div>
+                  </div>
+                </div>
+                <button onClick={() => buyManual(c.figi, c.ticker, Math.max(1, Math.floor(parseFloat(amount) / (c.price * c.lot))))}
+                  className="px-3 py-1 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all">
+                  КУПИТЬ
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Открытые позиции */}
+      {scStatus && scStatus.open_trades.length > 0 && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-3">ОТКРЫТЫЕ ПОЗИЦИИ СКАЛЬПЕРА</div>
+          <div className="space-y-2">
+            {scStatus.open_trades.map((t, i) => (
+              <div key={t.id} className="cyber-card rounded-none p-3 animate-fade-in-up flex items-center justify-between" style={{ animationDelay: `${i * 50}ms`, opacity: 0 }}>
+                <div>
+                  <div className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</div>
+                  <div className="section-label text-[10px]">{t.lots} лот · {t.buy_price.toLocaleString("ru-RU")} ₽ · {t.amount.toLocaleString("ru-RU")} ₽</div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-xs neon-text">+{t.target_pct}% цель</div>
+                  <div className="font-mono text-xs text-[var(--cyber-red)]">−{t.stop_pct}% стоп</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===== REFERRAL PAGE ===== */
+function ReferralPage({ user }: { user: { username: string; role: string } }) {
+  const [stats, setStats] = useState<{ ref_code: string; ref_count: number; refs: { id: number; username: string; joined: string }[]; total_earned: number } | null>(null);
+  const [adminUsers, setAdminUsers] = useState<{ id: number; username: string; email: string; role: string; plan: string; ref_code: string; is_active: boolean; created_at: string; ref_earn: number }[]>([]);
+  const [refPct, setRefPct] = useState("0.5");
+  const [refMode, setRefMode] = useState("trade_amount");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    authFetch(`${AUTH_URL}?action=ref_stats`).then(r => r.json()).then(d => { if (d.ok) setStats(d); });
+    if (user.role === "admin") {
+      authFetch(`${AUTH_URL}?action=admin_users`).then(r => r.json()).then(d => { if (d.ok) setAdminUsers(d.users); });
+    }
+  }, [user.role]);
+
+  const saveRefSettings = async () => {
+    setSaving(true);
+    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "save_ref_settings", ref_earn_pct: parseFloat(refPct), ref_earn_mode: refMode }) });
+    const d = await r.json();
+    setMsg({ text: d.ok ? "✓ Настройки сохранены" : d.error, ok: d.ok });
+    setSaving(false);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Мой реф-код и доход */}
+      <div className="cyber-card-glow rounded-none p-5 animate-fade-in-up">
+        <div className="section-label mb-3">МОЯ РЕФЕРАЛЬНАЯ ПРОГРАММА</div>
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="text-center">
+            <div className="font-orbitron text-2xl font-black neon-text-cyan">{stats?.ref_count || 0}</div>
+            <div className="section-label mt-0.5">Рефералов</div>
+          </div>
+          <div className="text-center">
+            <div className="font-orbitron text-2xl font-black neon-text">+{(stats?.total_earned || 0).toFixed(2)} ₽</div>
+            <div className="section-label mt-0.5">Заработано</div>
+          </div>
+          <div className="text-center">
+            <div className="font-orbitron text-lg font-black text-[var(--cyber-yellow)]">{stats?.ref_code || "—"}</div>
+            <div className="section-label mt-0.5">Мой код</div>
+          </div>
+        </div>
+        {stats?.ref_code && (
+          <div className="flex gap-2">
+            <div className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] px-3 py-2 font-mono text-sm text-[var(--cyber-cyan)]">{stats.ref_code}</div>
+            <button onClick={() => navigator.clipboard.writeText(stats.ref_code)} className="px-3 py-2 border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] rounded-none hover:bg-[rgba(0,212,255,0.08)] transition-all font-mono text-xs flex items-center gap-1">
+              <Icon name="Copy" size={12} /> Копировать
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Список рефералов */}
+      {stats && stats.refs.length > 0 && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-3">МОИ РЕФЕРАЛЫ</div>
+          <div className="space-y-2">
+            {stats.refs.map((r, i) => (
+              <div key={r.id} className="flex items-center justify-between py-2 border-b border-[rgba(26,58,74,0.4)]" style={{ animationDelay: `${i * 40}ms` }}>
+                <div className="font-mono text-sm text-[var(--cyber-text)]">{r.username}</div>
+                <div className="section-label text-[10px]">{new Date(r.joined).toLocaleDateString("ru-RU")}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Настройки реф.системы (только admin) */}
+      {user.role === "admin" && (
+        <div className="cyber-card rounded-none p-4 border border-[rgba(255,200,0,0.2)] animate-fade-in-up space-y-3">
+          <div className="section-label text-[var(--cyber-yellow)]">НАСТРОЙКИ РЕФЕРАЛЬНОЙ СИСТЕМЫ (ADMIN)</div>
+          {msg && <div className={`p-2 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="section-label text-[10px] mb-1">% начисления с каждой сделки</div>
+              <input value={refPct} onChange={e => setRefPct(e.target.value)} type="number" step="0.01" min="0"
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+            </div>
+            <div>
+              <div className="section-label text-[10px] mb-1">Тип начисления</div>
+              <select value={refMode} onChange={e => setRefMode(e.target.value)} className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]">
+                <option value="trade_amount">% от суммы сделки</option>
+                <option value="profit_only">% от прибыли</option>
+              </select>
+            </div>
+          </div>
+          <button onClick={saveRefSettings} disabled={saving} className="w-full py-2 font-mono text-xs border border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] hover:bg-[rgba(255,200,0,0.08)] rounded-none transition-all disabled:opacity-40">
+            {saving ? "СОХРАНЕНИЕ..." : "ПРИМЕНИТЬ"}
+          </button>
+        </div>
+      )}
+
+      {/* Все пользователи (только admin) */}
+      {user.role === "admin" && adminUsers.length > 0 && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-3">ВСЕ ПОЛЬЗОВАТЕЛИ КИБЕРБОТ</div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[var(--cyber-border)]">
+                  {["ID", "Логин", "Роль", "Реф-код", "Доход с него", "Дата"].map(h => (
+                    <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {adminUsers.map((u, i) => (
+                  <tr key={u.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,255,136,0.02)]">
+                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{u.id}</td>
+                    <td className="font-mono text-xs font-bold text-[var(--cyber-text)] py-2 pr-4">{u.username}</td>
+                    <td className={`font-mono text-xs py-2 pr-4 ${u.role === "admin" ? "neon-text" : "text-[var(--cyber-text-dim)]"}`}>{u.role}</td>
+                    <td className="font-mono text-xs text-[var(--cyber-cyan)] py-2 pr-4">{u.ref_code || "—"}</td>
+                    <td className={`font-mono text-xs py-2 pr-4 ${u.ref_earn > 0 ? "neon-text" : "text-[var(--cyber-text-dim)]"}`}>{u.ref_earn > 0 ? `+${u.ref_earn.toFixed(2)} ₽` : "0 ₽"}</td>
+                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{new Date(u.created_at).toLocaleDateString("ru-RU")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 p-3 border border-[rgba(0,255,136,0.2)] font-mono text-xs">
+            <span className="section-label">Итого доход от рефералов: </span>
+            <span className="neon-text font-bold">{adminUsers.reduce((a, u) => a + u.ref_earn, 0).toFixed(2)} ₽</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ===== GENERIC ===== */
 function GenericPage({ title, icon }: { title: string; icon: string }) {
   return (
@@ -2384,6 +2832,9 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;
       case "positions": return <LivePositionsPage />;
+      case "scalper": return <ScalperPage />;
+      case "referral": return <ReferralPage user={user} />;
+      case "profile": return <ProfilePage user={user} />;
       case "api": return <ApiKeysPage />;
       case "signals": return <GenericPage title="ТОРГОВЫЕ СИГНАЛЫ" icon="Radio" />;
       case "risk": return <GenericPage title="РИСК-МЕНЕДЖМЕНТ" icon="Shield" />;

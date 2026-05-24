@@ -1,9 +1,7 @@
 """
-Авторизация КиберБот — логин, логаут, проверка сессии.
-Пароль хранится как bcrypt-хэш в таблице users.
-Сессия — случайный токен 64 символа, живёт 30 дней.
+Авторизация КиберБот — логин, регистрация, личный кабинет, токены.
 """
-import os, json, secrets, hashlib
+import os, json, secrets, hashlib, random, string
 from datetime import datetime, timezone
 import psycopg2
 
@@ -17,7 +15,7 @@ CORS = {
 }
 
 def resp(body, code=200):
-    return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False)}
+    return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, default=str)}
 
 def db(sql, params=()):
     conn = psycopg2.connect(DB_URL)
@@ -29,19 +27,28 @@ def db(sql, params=()):
     cur.close(); conn.close()
     return [dict(zip(cols, r)) for r in rows]
 
-def hash_password(password: str) -> str:
-    """SHA-256 хэш пароля."""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+def hash_pw(p): return hashlib.sha256(p.encode("utf-8")).hexdigest()
 
-def check_session(session_id: str):
-    """Проверить сессию — вернуть user или None."""
-    if not session_id or len(session_id) < 32:
-        return None
+def gen_ref_code():
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+
+def check_session(session_id):
+    if not session_id or len(session_id) < 32: return None
     rows = db(
-        f"SELECT s.id, s.user_id, s.expires_at, u.username, u.role FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()",
+        f"SELECT s.id, s.user_id, u.username, u.role, u.email FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()",
         (session_id,)
     )
     return rows[0] if rows else None
+
+def get_user_full(user_id):
+    rows = db(f"SELECT id, username, email, role, tbank_token, binance_api_key, binance_secret_key, ref_code, referred_by, plan, created_at FROM {SCHEMA}.users WHERE id = %s", (user_id,))
+    return rows[0] if rows else None
+
+def create_session(user_id, ip="", ua=""):
+    token = secrets.token_hex(32)
+    db(f"INSERT INTO {SCHEMA}.sessions (id, user_id, ip, user_agent) VALUES (%s, %s, %s, %s)", (token, user_id, ip, ua[:250]))
+    db(f"UPDATE {SCHEMA}.users SET last_login = NOW() WHERE id = %s", (user_id,))
+    return token
 
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
@@ -52,104 +59,184 @@ def handler(event: dict, context) -> dict:
     headers = event.get("headers") or {}
     action = params.get("action", "")
     session_id = headers.get("x-session-id") or headers.get("X-Session-Id") or ""
+    ip = (event.get("requestContext") or {}).get("identity", {}).get("sourceIp", "")
+    ua = headers.get("user-agent", "")
 
-    # ── GET: проверка сессии ────────────────────────────────────────────────
-    if method == "GET" and action == "check":
-        user = check_session(session_id)
-        if user:
-            return resp({
-                "ok": True,
-                "user": {"id": user["user_id"], "username": user["username"], "role": user["role"]}
+    # ── GET ────────────────────────────────────────────────────────────────
+    if method == "GET":
+        if action == "check":
+            user = check_session(session_id)
+            if not user:
+                return resp({"ok": False, "error": "Сессия истекла"}, 401)
+            return resp({"ok": True, "user": {"id": user["user_id"], "username": user["username"], "role": user["role"], "email": user["email"]}})
+
+        if action == "profile":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            u = get_user_full(user["user_id"])
+            if not u: return resp({"ok": False, "error": "Пользователь не найден"}, 404)
+            # Скрываем секреты — показываем только наличие
+            return resp({"ok": True, "user": {
+                "id": u["id"], "username": u["username"], "email": u["email"] or "",
+                "role": u["role"], "plan": u["plan"] or "free",
+                "ref_code": u["ref_code"] or "",
+                "has_tbank_token": bool(u["tbank_token"]),
+                "has_binance_key": bool(u["binance_api_key"]),
+                "created_at": str(u["created_at"]),
+            }})
+
+        if action == "admin_users":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            users = db(f"SELECT id, username, email, role, plan, ref_code, referred_by, is_active, created_at, last_login FROM {SCHEMA}.users ORDER BY id")
+            # Реферальный доход по каждому
+            earnings = db(f"SELECT from_user_id, SUM(earned) as total FROM {SCHEMA}.referral_earnings WHERE owner_id = 1 GROUP BY from_user_id")
+            earn_map = {e["from_user_id"]: float(e["total"]) for e in earnings}
+            for u in users:
+                u["ref_earn"] = earn_map.get(u["id"], 0)
+                u["created_at"] = str(u["created_at"])
+                u["last_login"] = str(u["last_login"]) if u["last_login"] else None
+            return resp({"ok": True, "users": users})
+
+        if action == "ref_stats":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            uid = user["user_id"]
+            # Рефералы этого пользователя
+            refs = db(f"SELECT id, username, created_at FROM {SCHEMA}.users WHERE referred_by = %s", (uid,))
+            total_earn = db(f"SELECT COALESCE(SUM(earned),0) as total FROM {SCHEMA}.referral_earnings WHERE owner_id = %s", (uid,))
+            u = get_user_full(uid)
+            return resp({"ok": True,
+                "ref_code": u["ref_code"] or "",
+                "ref_count": len(refs),
+                "refs": [{"id": r["id"], "username": r["username"], "joined": str(r["created_at"])} for r in refs],
+                "total_earned": float(total_earn[0]["total"]) if total_earn else 0,
             })
-        return resp({"ok": False, "error": "Сессия истекла или не найдена"}, 401)
 
-    # ── POST: логин ─────────────────────────────────────────────────────────
+        return resp({"error": f"Неизвестный action: {action}"}, 400)
+
+    # ── POST ───────────────────────────────────────────────────────────────
     if method == "POST":
         body = json.loads(event.get("body") or "{}")
         action = body.get("action", "")
 
-        # Сброс пароля через мастер-ключ (только для восстановления доступа)
-        if action == "reset_password":
-            master_key = body.get("master_key", "")
-            new_password = body.get("new_password", "")
-            target_user = body.get("username", "raziklon")
-            if master_key != "KIBERBOT_RESET_2024":
-                return resp({"ok": False, "error": "Неверный мастер-ключ"}, 403)
-            if len(new_password) < 6:
-                return resp({"ok": False, "error": "Пароль минимум 6 символов"}, 400)
-            new_hash = hash_password(new_password)
-            db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE username = %s",
-               (new_hash, target_user))
-            return resp({"ok": True, "message": f"Пароль для {target_user} сброшен", "hash": new_hash})
+        # ── Регистрация ──────────────────────────────────────────────────
+        if action == "register":
+            username = body.get("username", "").strip().lower()
+            password = body.get("password", "")
+            email = body.get("email", "").strip().lower()
+            ref_code = body.get("ref_code", "").strip().upper()
 
+            if len(username) < 3: return resp({"ok": False, "error": "Логин минимум 3 символа"}, 400)
+            if len(password) < 6: return resp({"ok": False, "error": "Пароль минимум 6 символов"}, 400)
+            if not username.replace("_","").replace("-","").isalnum():
+                return resp({"ok": False, "error": "Логин: только буквы, цифры, _ -"}, 400)
+
+            # Проверяем уникальность
+            existing = db(f"SELECT id FROM {SCHEMA}.users WHERE username = %s", (username,))
+            if existing: return resp({"ok": False, "error": "Логин уже занят"}, 400)
+
+            # Реферер
+            referrer_id = None
+            if ref_code:
+                ref_rows = db(f"SELECT id FROM {SCHEMA}.users WHERE ref_code = %s", (ref_code,))
+                if ref_rows: referrer_id = ref_rows[0]["id"]
+
+            # Генерируем реф-код для нового пользователя
+            new_ref = gen_ref_code()
+            while db(f"SELECT id FROM {SCHEMA}.users WHERE ref_code = %s", (new_ref,)):
+                new_ref = gen_ref_code()
+
+            # Создаём пользователя
+            new_user = db(
+                f"INSERT INTO {SCHEMA}.users (username, password_hash, role, email, ref_code, referred_by) VALUES (%s, %s, 'user', %s, %s, %s) RETURNING id, username, role",
+                (username, hash_pw(password), email or None, new_ref, referrer_id)
+            )
+            user_id = new_user[0]["id"]
+
+            # Создаём сессию сразу
+            token = create_session(user_id, ip, ua)
+
+            return resp({"ok": True, "session_id": token,
+                "user": {"id": user_id, "username": username, "role": "user"},
+                "ref_code": new_ref,
+            })
+
+        # ── Логин ────────────────────────────────────────────────────────
         if action == "login":
             username = body.get("username", "").strip().lower()
             password = body.get("password", "")
-
             if not username or not password:
                 return resp({"ok": False, "error": "Введи логин и пароль"}, 400)
+            rows = db(f"SELECT id, username, password_hash, role, is_active FROM {SCHEMA}.users WHERE username = %s", (username,))
+            if not rows: return resp({"ok": False, "error": "Неверный логин или пароль"}, 401)
+            u = rows[0]
+            if not u["is_active"]: return resp({"ok": False, "error": "Аккаунт заблокирован"}, 403)
+            if u["password_hash"] != hash_pw(password): return resp({"ok": False, "error": "Неверный логин или пароль"}, 401)
+            token = create_session(u["id"], ip, ua)
+            return resp({"ok": True, "session_id": token, "user": {"id": u["id"], "username": u["username"], "role": u["role"]}})
 
-            # Ищем пользователя
-            rows = db(
-                f"SELECT id, username, password_hash, role, is_active FROM {SCHEMA}.users WHERE username = %s",
-                (username,)
-            )
-            if not rows:
-                return resp({"ok": False, "error": "Неверный логин или пароль"}, 401)
-
-            user = rows[0]
-            if not user["is_active"]:
-                return resp({"ok": False, "error": "Аккаунт заблокирован"}, 403)
-
-            # Проверяем пароль (поддерживаем SHA-256)
-            pw_hash = hash_password(password)
-            if user["password_hash"] != pw_hash:
-                return resp({"ok": False, "error": "Неверный логин или пароль"}, 401)
-
-            # Создаём сессию
-            session_token = secrets.token_hex(32)
-            ip = (event.get("requestContext") or {}).get("identity", {}).get("sourceIp", "")
-            ua = headers.get("user-agent", "")[:250]
-
-            db(
-                f"INSERT INTO {SCHEMA}.sessions (id, user_id, ip, user_agent) VALUES (%s, %s, %s, %s)",
-                (session_token, user["id"], ip, ua)
-            )
-
-            # Обновляем last_login
-            db(f"UPDATE {SCHEMA}.users SET last_login = NOW() WHERE id = %s", (user["id"],))
-
-            return resp({
-                "ok": True,
-                "session_id": session_token,
-                "user": {"id": user["id"], "username": user["username"], "role": user["role"]}
-            })
-
-        # ── Логаут ──────────────────────────────────────────────────────────
+        # ── Логаут ───────────────────────────────────────────────────────
         if action == "logout":
             if session_id:
                 db(f"UPDATE {SCHEMA}.sessions SET expires_at = NOW() WHERE id = %s", (session_id,))
             return resp({"ok": True})
 
-        # ── Смена пароля ────────────────────────────────────────────────────
+        # ── Смена пароля ─────────────────────────────────────────────────
         if action == "change_password":
             user = check_session(session_id)
-            if not user:
-                return resp({"ok": False, "error": "Не авторизован"}, 401)
-
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
             old_pw = body.get("old_password", "")
             new_pw = body.get("new_password", "")
-
-            if len(new_pw) < 6:
-                return resp({"ok": False, "error": "Пароль минимум 6 символов"}, 400)
-
+            if len(new_pw) < 6: return resp({"ok": False, "error": "Пароль минимум 6 символов"}, 400)
             rows = db(f"SELECT password_hash FROM {SCHEMA}.users WHERE id = %s", (user["user_id"],))
-            if not rows or rows[0]["password_hash"] != hash_password(old_pw):
+            if not rows or rows[0]["password_hash"] != hash_pw(old_pw):
                 return resp({"ok": False, "error": "Старый пароль неверный"}, 401)
-
-            db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE id = %s",
-               (hash_password(new_pw), user["user_id"]))
+            db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE id = %s", (hash_pw(new_pw), user["user_id"]))
             return resp({"ok": True, "message": "Пароль изменён"})
+
+        # ── Сохранить токены ─────────────────────────────────────────────
+        if action == "save_tokens":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            uid = user["user_id"]
+            tbank = body.get("tbank_token", "").strip()
+            bkey = body.get("binance_api_key", "").strip()
+            bsec = body.get("binance_secret_key", "").strip()
+            # Обновляем только переданные поля
+            if tbank: db(f"UPDATE {SCHEMA}.users SET tbank_token = %s WHERE id = %s", (tbank, uid))
+            if bkey: db(f"UPDATE {SCHEMA}.users SET binance_api_key = %s WHERE id = %s", (bkey, uid))
+            if bsec: db(f"UPDATE {SCHEMA}.users SET binance_secret_key = %s WHERE id = %s", (bsec, uid))
+            return resp({"ok": True, "message": "Токены сохранены"})
+
+        # ── Сброс токена ─────────────────────────────────────────────────
+        if action == "clear_token":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            field = body.get("field", "")
+            if field in ("tbank_token", "binance_api_key", "binance_secret_key"):
+                db(f"UPDATE {SCHEMA}.users SET {field} = '' WHERE id = %s", (user["user_id"],))
+            return resp({"ok": True})
+
+        # ── Настройки реф.системы (только admin) ─────────────────────────
+        if action == "save_ref_settings":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            pct = str(body.get("ref_earn_pct", "0.5"))
+            mode = str(body.get("ref_earn_mode", "trade_amount"))
+            db(f"INSERT INTO {SCHEMA}.bot_settings (user_id, key, value) VALUES (1, 'ref_earn_pct', %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s", (pct, pct))
+            db(f"INSERT INTO {SCHEMA}.bot_settings (user_id, key, value) VALUES (1, 'ref_earn_mode', %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s", (mode, mode))
+            return resp({"ok": True, "message": "Настройки реферальной системы сохранены"})
+
+        # ── Сброс пароля (мастер-ключ) ────────────────────────────────────
+        if action == "reset_password":
+            if body.get("master_key") != "KIBERBOT_RESET_2024": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            new_pw = body.get("new_password", "")
+            if len(new_pw) < 6: return resp({"ok": False, "error": "Пароль минимум 6 символов"}, 400)
+            uname = body.get("username", "raziklon")
+            new_hash = hash_pw(new_pw)
+            db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE username = %s", (new_hash, uname))
+            return resp({"ok": True, "hash": new_hash})
 
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 
