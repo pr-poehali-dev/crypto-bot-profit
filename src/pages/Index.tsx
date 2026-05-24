@@ -3128,18 +3128,16 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
     if (scalpRunning) return;
     setScalpRunning(true);
     try {
-      const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "run_scalp" }) });
+      // force:true — запускаем даже если scalp_enabled не сохранён в user_settings
+      const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "run_scalp", force: true }) });
       const d = await r.json();
       if (d.ok) {
         const sold = d.sold?.length || 0;
         const bought = d.bought?.length || 0;
-        if (sold > 0 || bought > 0) {
-          setScalpMsg({ text: `⚡ Скальпер: куплено ${bought}, продано ${sold}`, ok: true });
-          setBalanceRefreshKey(k => k + 1);
-        }
+        setScalpMsg({ text: `⚡ Скальпер: куплено ${bought}, продано ${sold}`, ok: true });
+        if (sold > 0 || bought > 0) setBalanceRefreshKey(k => k + 1);
       } else if (!d.ok && d.reason) {
-        setScalpEnabled(false);
-        setScalpMsg({ text: `⚡ Скальпер стоп: ${d.reason}`, ok: false });
+        setScalpMsg({ text: `⚡ ${d.reason}`, ok: false });
       }
     } catch { /* skip */ }
     setScalpRunning(false);
@@ -3189,10 +3187,10 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
 
   const activeNav = NAV_ITEMS.find(n => n.id === activeSection);
 
-  // Мобильное меню — закрываем при выборе раздела
+  // Мобильное меню — закрываем ТОЛЬКО на мобиле
   const handleNavClick = (id: string) => {
     setActiveSection(id);
-    setSidebarOpen(false);
+    if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
   // Топ-6 разделов для нижней панели мобиле
@@ -3216,12 +3214,13 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       <aside className={`
         fixed md:relative z-50 md:z-auto h-full md:h-auto
         ${sidebarOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0 md:w-14"}
-        flex-shrink-0 transition-all duration-300 flex flex-col
+        flex-shrink-0 md:transition-none transition-transform duration-200 flex flex-col
       `} style={{
         background: "var(--cyber-surface)",
         borderRight: "1px solid var(--cyber-border)",
-        touchAction: "pan-y",
-        overscrollBehavior: "contain",
+        touchAction: "none",
+        overscrollBehavior: "none",
+        userSelect: "none",
       }}>
 
         {/* Логотип */}

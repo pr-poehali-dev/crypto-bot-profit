@@ -234,7 +234,10 @@ def handler(event: dict, context) -> dict:
             # Автоматический цикл скальпинга
             us = db(f"SELECT key, value FROM {SCHEMA}.user_settings WHERE user_id = %s", (uid,))
             us_map = {r["key"]: r["value"] for r in us}
-            if us_map.get("scalp_enabled") != "true": return resp({"ok": False, "reason": "Скальпинг выключен"})
+            # Разрешаем запуск если scalp_enabled=true ИЛИ вызван напрямую (force=true)
+            force = body.get("force", False) if method == "POST" else False
+            if us_map.get("scalp_enabled") != "true" and not force:
+                return resp({"ok": False, "reason": "Скальпинг выключен. Включите его в настройках скальпера."})
             target_pct = float(us_map.get("scalp_target_pct", 1.0))
             stop_pct = float(us_map.get("scalp_stop_pct", 2.0))
             amount = float(us_map.get("scalp_amount", 1000))
