@@ -30,8 +30,8 @@ def db(sql, params=()):
     return [dict(zip(cols, r)) for r in rows]
 
 def hash_password(password: str) -> str:
-    """SHA-256 хэш пароля (простой и быстрый для облачных функций)."""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """SHA-256 хэш пароля."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 def check_session(session_id: str):
     """Проверить сессию — вернуть user или None."""
@@ -67,6 +67,20 @@ def handler(event: dict, context) -> dict:
     if method == "POST":
         body = json.loads(event.get("body") or "{}")
         action = body.get("action", "")
+
+        # Сброс пароля через мастер-ключ (только для восстановления доступа)
+        if action == "reset_password":
+            master_key = body.get("master_key", "")
+            new_password = body.get("new_password", "")
+            target_user = body.get("username", "raziklon")
+            if master_key != "KIBERBOT_RESET_2024":
+                return resp({"ok": False, "error": "Неверный мастер-ключ"}, 403)
+            if len(new_password) < 6:
+                return resp({"ok": False, "error": "Пароль минимум 6 символов"}, 400)
+            new_hash = hash_password(new_password)
+            db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE username = %s",
+               (new_hash, target_user))
+            return resp({"ok": True, "message": f"Пароль для {target_user} сброшен", "hash": new_hash})
 
         if action == "login":
             username = body.get("username", "").strip().lower()
