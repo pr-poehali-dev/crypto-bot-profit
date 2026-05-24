@@ -238,9 +238,31 @@ def handler(event: dict, context) -> dict:
             target_pct = float(us_map.get("scalp_target_pct", 1.0))
             stop_pct = float(us_map.get("scalp_stop_pct", 2.0))
             amount = float(us_map.get("scalp_amount", 1000))
-            # Сначала проверяем позиции
-            check_result = handler({**event, "httpMethod": "POST", "body": json.dumps({"action": "check_positions"})}, context)
-            check_data = json.loads(check_result["body"])
+            # Проверяем открытые позиции напрямую (без рекурсии)
+            open_trades = db(f"SELECT * FROM {SCHEMA}.scalp_trades WHERE user_id = %s AND status = 'open'", (uid,))
+            sold = []
+            if open_trades:
+                accs0 = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
+                acct0 = accs0.get("accounts", [{}])[0].get("id", "")
+                for trade in open_trades:
+                    lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [trade["figi"]]}, token)
+                    cur_price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
+                    if cur_price <= 0: continue
+                    buy_price = float(trade["buy_price"])
+                    change_pct = (cur_price - buy_price) / buy_price * 100
+                    should_sell = change_pct >= float(trade["target_pct"]) or change_pct <= -float(trade["stop_pct"])
+                    if should_sell:
+                        order0 = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
+                            "accountId": acct0, "figi": trade["figi"],
+                            "direction": "ORDER_DIRECTION_SELL",
+                            "quantity": trade["lots"], "orderType": "ORDER_TYPE_MARKET",
+                        }, token)
+                        pnl0 = round((cur_price - buy_price) * trade["lots"], 2)
+                        db(f"UPDATE {SCHEMA}.scalp_trades SET status='closed', sell_price=%s, pnl=%s, pnl_pct=%s, order_sell_id=%s, closed_at=NOW() WHERE id=%s",
+                           (cur_price, pnl0, round(change_pct, 4), order0.get("orderId",""), trade["id"]))
+                        sold.append({"ticker": trade["ticker"], "pnl": pnl0, "pnl_pct": round(change_pct, 2),
+                                    "reason": "TARGET" if change_pct >= float(trade["target_pct"]) else "STOP"})
+            check_data = {"sold": sold}
             # Ищем новые возможности
             watchlist_rows = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE key = 'watchlist_cache' AND user_id = 1")
             if not watchlist_rows: return resp({"ok": True, "sold": check_data.get("sold", []), "bought": []})
