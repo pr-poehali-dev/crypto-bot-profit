@@ -8,6 +8,8 @@ const TBANK_URL = "https://functions.poehali.dev/fb80b07e-125f-40dc-8244-d902c6b
 const AUTOTRADER_URL = "https://functions.poehali.dev/f372165e-74bb-42e7-9a58-5830d08d29fb";
 const AUTH_URL = "https://functions.poehali.dev/caebbeb5-e41f-40ce-9f6c-3a86058c804d";
 const SCALPER_URL = "https://functions.poehali.dev/069c26ed-4e40-418f-a3f1-c49541d79bf9";
+const SCHEDULER_URL = "https://functions.poehali.dev/682bcb35-b68e-46b3-931e-ae304700cefd";
+const CRON_JOB_URL = `https://cron-job.org/en/members/jobs/`;
 
 // Хелпер — все запросы с токеном сессии
 const SESSION_KEY = "kb_session";
@@ -1844,6 +1846,9 @@ function AutoBotPage({
         </div>
       )}
 
+      {/* Серверный планировщик 24/7 */}
+      <ServerCronPanel />
+
       {/* Защита */}
       <div className="cyber-card rounded-none p-3 border border-[rgba(255,61,113,0.2)] animate-fade-in-up">
         <div className="flex items-start gap-2">
@@ -1855,6 +1860,130 @@ function AutoBotPage({
         </div>
       </div>
 
+    </div>
+  );
+}
+
+/* ===== SERVER CRON PANEL ===== */
+function ServerCronPanel() {
+  const [lastRun, setLastRun] = useState<string>("—");
+  const [lastResult, setLastResult] = useState<{ autobot?: { trades: number; daily_pnl: number }; scalper?: { bought: number; sold: number } } | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    authFetch(`${AUTOTRADER_URL}?action=status`)
+      .then(r => r.json())
+      .then(d => { if (d.last_run) setLastRun(d.last_run); })
+      .catch(() => {});
+  }, []);
+
+  const testNow = async () => {
+    setTesting(true); setTestMsg(null);
+    try {
+      const r = await fetch(SCHEDULER_URL, { headers: { "Content-Type": "application/json" } });
+      const d = await r.json();
+      if (d.success) {
+        setLastRun(d.time);
+        setLastResult({ autobot: d.autobot, scalper: d.scalper });
+        const trades = d.autobot?.trades || 0;
+        const bought = d.scalper?.bought || 0;
+        setTestMsg({ text: `✓ Цикл выполнен · автобот: ${trades} сделок · скальпер: куплено ${bought}`, ok: true });
+      } else {
+        setTestMsg({ text: d.reason || "Пропущен (бот выключен или нерабочее время)", ok: false });
+      }
+    } catch (e) {
+      setTestMsg({ text: "Ошибка соединения", ok: false });
+    }
+    setTesting(false);
+    setTimeout(() => setTestMsg(null), 5000);
+  };
+
+  const cronUrl = SCHEDULER_URL;
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(cronUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="cyber-card rounded-none p-4 border border-[rgba(0,212,255,0.25)] animate-fade-in-up space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="section-label flex items-center gap-2">
+          <Icon name="Server" size={13} className="neon-text-cyan" />
+          СЕРВЕРНЫЙ ПЛАНИРОВЩИК 24/7
+        </div>
+        <div className="flex items-center gap-1.5 font-mono text-[10px]">
+          <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-green)] animate-pulse" />
+          <span className="neon-text">АКТИВЕН НА СЕРВЕРЕ</span>
+        </div>
+      </div>
+
+      <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+        Бот работает <span className="text-[var(--cyber-cyan)]">независимо от браузера</span> — через серверный cron. Закрой вкладку, выключи компьютер — торговля продолжается 24/7 на сервере домена.
+      </div>
+
+      {/* Последний запуск */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] p-2 rounded-none">
+          <div className="section-label text-[9px] mb-0.5">Последний запуск</div>
+          <div className="font-mono text-xs text-[var(--cyber-text)]">{lastRun}</div>
+        </div>
+        <div className="bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] p-2 rounded-none">
+          <div className="section-label text-[9px] mb-0.5">Результат</div>
+          <div className="font-mono text-xs text-[var(--cyber-text)]">
+            {lastResult ? `сделок: ${lastResult.autobot?.trades || 0}` : "—"}
+          </div>
+        </div>
+      </div>
+
+      {testMsg && (
+        <div className={`p-2 border font-mono text-xs ${testMsg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          {testMsg.text}
+        </div>
+      )}
+
+      {/* Кнопки */}
+      <div className="flex gap-2">
+        <button onClick={testNow} disabled={testing}
+          className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
+          {testing ? <Spinner /> : <Icon name="Play" size={12} />}
+          ЗАПУСТИТЬ ЦИКЛ
+        </button>
+        <button onClick={copyUrl}
+          className="px-3 py-2 font-mono text-xs border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] rounded-none transition-all flex items-center gap-1.5">
+          <Icon name={copied ? "Check" : "Copy"} size={12} className={copied ? "neon-text" : ""} />
+          {copied ? "Скопировано" : "URL"}
+        </button>
+      </div>
+
+      {/* Инструкция cron-job.org */}
+      <details className="group">
+        <summary className="cursor-pointer section-label flex items-center gap-1.5 hover:text-[var(--cyber-cyan)] transition-colors">
+          <Icon name="ChevronRight" size={11} className="group-open:rotate-90 transition-transform" />
+          Настройка автоматического запуска каждые 15 мин
+        </summary>
+        <div className="mt-2 space-y-2 text-[11px] text-[var(--cyber-text-dim)] leading-relaxed pl-4">
+          <div className="flex items-start gap-1.5"><span className="text-[var(--cyber-cyan)] shrink-0 font-bold">1.</span><span>Зайди на <span className="text-[var(--cyber-cyan)]">cron-job.org</span> → зарегистрируйся бесплатно</span></div>
+          <div className="flex items-start gap-1.5"><span className="text-[var(--cyber-cyan)] shrink-0 font-bold">2.</span><span>Нажми «Create Cronjob»</span></div>
+          <div className="flex items-start gap-1.5"><span className="text-[var(--cyber-cyan)] shrink-0 font-bold">3.</span>
+            <div>
+              <span>Вставь URL:</span>
+              <div className="mt-1 flex items-center gap-2 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] px-2 py-1">
+                <span className="font-mono text-[10px] text-[var(--cyber-text)] break-all flex-1">{SCHEDULER_URL}</span>
+                <button onClick={copyUrl} className="shrink-0"><Icon name={copied ? "Check" : "Copy"} size={11} className={copied ? "neon-text" : "text-[var(--cyber-text-dim)]"} /></button>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-start gap-1.5"><span className="text-[var(--cyber-cyan)] shrink-0 font-bold">4.</span><span>Schedule: <span className="font-mono text-[var(--cyber-text)]">Every 15 minutes</span></span></div>
+          <div className="flex items-start gap-1.5"><span className="text-[var(--cyber-cyan)] shrink-0 font-bold">5.</span><span>Нажми «Save» — готово! Бот работает 24/7</span></div>
+          <div className="mt-2 p-2 border border-[rgba(0,255,136,0.15)] text-[10px]">
+            ✅ Бесплатно · Надёжно · Не требует своего сервера
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

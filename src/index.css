@@ -468,11 +468,25 @@
   background: var(--cyber-green-dim);
 }
 
-/* ── Отключаем авто-свайп и overflow на всём body ── */
-html,
+/* ── Отключаем авто-свайп полностью ── */
+html {
+  overscroll-behavior: none;
+  overscroll-behavior-x: none;
+}
 body {
   overscroll-behavior: none;
   overscroll-behavior-x: none;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: auto;
+}
+/* Сайдбар не должен триггерить свайп назад */
+aside {
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+/* Главный контент — только вертикальный скролл */
+main {
+  overscroll-behavior: contain;
   touch-action: pan-y;
 }
 
