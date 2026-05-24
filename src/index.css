@@ -385,10 +385,17 @@
 
 .section-label {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 0.65rem;
-  letter-spacing: 0.2em;
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
   text-transform: uppercase;
   color: var(--cyber-text-dim);
+}
+
+@media (max-width: 640px) {
+  .section-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+  }
 }
 
 .chart-bar {
@@ -459,4 +466,31 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--cyber-green-dim);
+}
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  /* Отступы контента */
+  .p-5 {
+    padding: 0.75rem;
+  }
+
+  /* Таблицы — горизонтальный скролл */
+  table {
+    min-width: 480px;
+  }
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Орбитрон шрифт чуть меньше */
+  .font-orbitron {
+    letter-spacing: 0.02em;
+  }
+
+  /* Карточки без лишних отступов */
+  .cyber-card,
+  .cyber-card-glow {
+    padding: 0.75rem;
+  }
 }

@@ -2057,11 +2057,38 @@ export default function Index() {
 
   const activeNav = NAV_ITEMS.find(n => n.id === activeSection);
 
+  // Мобильное меню — закрываем при выборе раздела
+  const handleNavClick = (id: string) => {
+    setActiveSection(id);
+    setSidebarOpen(false);
+  };
+
+  // Топ-6 разделов для нижней панели мобиле
+  const BOTTOM_NAV = [
+    { id: "dashboard", icon: "LayoutDashboard", label: "Главная" },
+    { id: "tbank", icon: "Building2", label: "Т-Банк" },
+    { id: "autobot", icon: "Bot", label: "Автобот" },
+    { id: "strategies", icon: "Brain", label: "Стратегии" },
+    { id: "settings_menu", icon: "Menu", label: "Меню" },
+  ];
+
   return (
-    <div className="cyber-bg min-h-screen flex" style={{ fontFamily: "'IBM Plex Sans', sans-serif", color: "var(--cyber-text)" }}>
-      <aside className={`${sidebarOpen ? "w-56" : "w-14"} flex-shrink-0 transition-all duration-300 relative`}
-        style={{ background: "var(--cyber-surface)", borderRight: "1px solid var(--cyber-border)" }}>
-        <div className="p-4 border-b border-[var(--cyber-border)]">
+    <div className="cyber-bg min-h-screen flex flex-col md:flex-row" style={{ fontFamily: "'IBM Plex Sans', sans-serif", color: "var(--cyber-text)" }}>
+
+      {/* Мобильный оверлей при открытом меню */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      {/* Сайдбар — на десктопе статичный, на мобиле — выезжает слева */}
+      <aside className={`
+        fixed md:relative z-50 md:z-auto h-full md:h-auto
+        ${sidebarOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0 md:w-14"}
+        flex-shrink-0 transition-all duration-300 flex flex-col
+      `} style={{ background: "var(--cyber-surface)", borderRight: "1px solid var(--cyber-border)" }}>
+
+        {/* Логотип */}
+        <div className="p-4 border-b border-[var(--cyber-border)] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 flex items-center justify-center flex-shrink-0"
               style={{ border: "1px solid var(--cyber-green)", boxShadow: "0 0 10px rgba(0,255,136,0.3)" }}>
@@ -2070,54 +2097,66 @@ export default function Index() {
             {sidebarOpen && (
               <div>
                 <div className="font-orbitron text-sm font-bold neon-text">КИБЕРБОТ</div>
-                <div className="section-label" style={{ fontSize: "0.55rem" }}>CRYPTO TRADER</div>
+                <div className="text-[9px] font-mono text-[var(--cyber-text-dim)] tracking-widest">CRYPTO TRADER</div>
               </div>
             )}
           </div>
+          {sidebarOpen && (
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden cyber-btn p-1 rounded-none">
+              <Icon name="X" size={14} />
+            </button>
+          )}
         </div>
-        <nav className="py-3">
+
+        {/* Навигация */}
+        <nav className="py-2 flex-1 overflow-y-auto">
           {NAV_ITEMS.map(item => (
-            <button key={item.id} onClick={() => setActiveSection(item.id)}
+            <button key={item.id}
+              onClick={() => handleNavClick(item.id)}
               className={`nav-item w-full text-left ${activeSection === item.id ? "active" : ""}`}
               title={!sidebarOpen ? item.label : undefined}>
               <Icon name={item.icon} size={16} fallback="Circle" />
-              {sidebarOpen && <span>{item.label}</span>}
+              {sidebarOpen && <span className="text-sm">{item.label}</span>}
             </button>
           ))}
         </nav>
+
+        {/* Статус бота */}
         {sidebarOpen && (
-          <div className="absolute bottom-4 left-0 right-0 px-4">
-            <div className="cyber-card rounded-none p-3">
-              <div className="flex items-center gap-2 mb-1">
-                <div className={`status-dot ${botRunning ? "online" : "offline"}`} />
-                <span className="font-mono text-xs" style={{ color: botRunning ? "var(--cyber-green)" : "var(--cyber-red)" }}>
-                  {botRunning ? "АКТИВЕН" : "СТОП"}
+          <div className="p-3 border-t border-[var(--cyber-border)]">
+            <div className="cyber-card rounded-none p-2.5">
+              <div className="flex items-center gap-2 mb-0.5">
+                <div className={`status-dot ${botEnabled ? "online" : "offline"}`} />
+                <span className="font-mono text-xs" style={{ color: botEnabled ? "var(--cyber-green)" : "var(--cyber-text-dim)" }}>
+                  {botEnabled ? "БОТ АКТИВЕН" : "БОТ СТОП"}
                 </span>
               </div>
-              <div className="section-label" style={{ fontSize: "0.6rem" }}>{time.toLocaleTimeString("ru-RU")} МСК</div>
+              <div className="font-mono text-[10px] text-[var(--cyber-text-dim)]">{time.toLocaleTimeString("ru-RU")} МСК</div>
             </div>
           </div>
         )}
       </aside>
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center justify-between px-5 py-3 border-b"
+      {/* Основной контент */}
+      <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0">
+
+        {/* Хедер */}
+        <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
           style={{ background: "var(--cyber-surface)", borderColor: "var(--cyber-border)" }}>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="cyber-btn p-1.5 rounded-none">
+          <div className="flex items-center gap-2 md:gap-4 min-w-0">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="cyber-btn p-1.5 rounded-none flex-shrink-0">
               <Icon name="Menu" size={16} />
             </button>
-            <div className="font-orbitron text-sm font-semibold text-[var(--cyber-text)]">
+            <div className="font-orbitron text-xs md:text-sm font-semibold text-[var(--cyber-text)] truncate">
               {activeNav?.label?.toUpperCase()}
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Индикатор автобота — виден из любого раздела */}
+          <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
+            {/* Индикатор бота */}
             {botEnabled && (
               <button onClick={() => setActiveSection("autobot")}
-                className="hidden md:flex items-center gap-2 px-2 py-1 border border-[var(--cyber-green)] rounded-none hover:bg-[rgba(0,255,136,0.08)] transition-all">
+                className="flex items-center gap-1.5 px-2 py-1 border border-[var(--cyber-green)] rounded-none">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-green)] animate-pulse" />
-                <span className="font-mono text-xs text-[var(--cyber-green)]">БОТ</span>
                 <span className="font-orbitron text-xs neon-text">
                   {Math.floor(botCountdown / 60).toString().padStart(2,"0")}:{(botCountdown % 60).toString().padStart(2,"0")}
                 </span>
@@ -2126,19 +2165,43 @@ export default function Index() {
             <div className="hidden md:block font-mono text-xs text-[var(--cyber-text-dim)]">
               {time.toLocaleTimeString("ru-RU")}
             </div>
-            <button onClick={() => setActiveSection("wallet")}
-              className="flex items-center gap-1 px-2 py-1 transition-all hover:border-[var(--cyber-green)]"
-              style={{ border: "1px solid var(--cyber-border)" }}>
-              <Icon name="Wallet" size={14} style={{ color: "var(--cyber-cyan)" }} />
-              <span className="font-mono text-xs neon-text-cyan">$12,450</span>
-            </button>
             <button className="cyber-btn p-1.5 rounded-none">
               <Icon name="Bell" size={14} />
             </button>
           </div>
         </header>
-        <main className="flex-1 p-5 overflow-auto">{renderContent()}</main>
+
+        {/* Контент */}
+        <main className="flex-1 p-3 md:p-5 overflow-auto">{renderContent()}</main>
       </div>
+
+      {/* Нижняя навигация — только на мобиле */}
+      <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden border-t"
+        style={{ background: "var(--cyber-surface)", borderColor: "var(--cyber-border)" }}>
+        <div className="flex items-center">
+          {BOTTOM_NAV.map(item => (
+            <button key={item.id}
+              onClick={() => item.id === "settings_menu" ? setSidebarOpen(true) : handleNavClick(item.id)}
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 px-1 transition-all ${
+                activeSection === item.id && item.id !== "settings_menu"
+                  ? "text-[var(--cyber-green)]"
+                  : "text-[var(--cyber-text-dim)]"
+              }`}>
+              <div className="relative">
+                <Icon name={item.icon} size={20} fallback="Circle" />
+                {item.id === "autobot" && botEnabled && (
+                  <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--cyber-green)] animate-pulse" />
+                )}
+              </div>
+              <span className="text-[9px] font-mono tracking-wide">{item.label}</span>
+              {activeSection === item.id && item.id !== "settings_menu" && (
+                <div className="w-4 h-0.5 rounded-full" style={{ background: "var(--cyber-green)" }} />
+              )}
+            </button>
+          ))}
+        </div>
+      </nav>
+
     </div>
   );
 }
