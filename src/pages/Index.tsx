@@ -883,6 +883,165 @@ interface TBankBalance {
 interface BotTrade { ticker: string; signal: string; lots?: number; price?: number; total?: number; status?: string; rsi?: number; reason?: string; }
 interface AutoBotStatusLight { enabled: boolean; mode: string; fixed_amount: number; last_run: string; last_trades: BotTrade[]; daily_pnl: number; }
 
+/* ═══ Портфель — реальные позиции ═══ */
+function TBankPortfolioTab({ positions, loading, onRefresh }: {
+  positions: { figi: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const real = positions.filter(p => p.instrument_type !== "currency" && p.quantity > 0);
+  if (loading) return <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none"><Spinner /><span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю портфель...</span></div>;
+  if (real.length === 0) return (
+    <div className="cyber-card rounded-none p-8 text-center animate-fade-in-up">
+      <Icon name="PieChart" size={40} className="mx-auto mb-3 text-[var(--cyber-text-dim)]" />
+      <div className="font-orbitron text-sm text-[var(--cyber-text-dim)] mb-2">ПОРТФЕЛЬ ПУСТ</div>
+      <div className="section-label">Бот ещё не купил акции или баланс не обновился</div>
+      <button onClick={onRefresh} className="mt-4 px-4 py-1.5 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] rounded-none hover:bg-[rgba(0,212,255,0.08)] transition-all flex items-center gap-1.5 mx-auto">
+        <Icon name="RefreshCw" size={11} /> Обновить
+      </button>
+    </div>
+  );
+  const totalPnl = real.reduce((a, p) => a + p.pnl, 0);
+  return (
+    <div className="space-y-3 animate-fade-in-up">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-lg font-bold neon-text-cyan">{real.length}</div>
+          <div className="section-label mt-0.5">Позиций</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className={`font-orbitron text-lg font-bold ${totalPnl >= 0 ? "neon-text" : "loss"}`}>
+            {totalPnl >= 0 ? "+" : ""}{totalPnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+          </div>
+          <div className="section-label mt-0.5">Нереализованный P&L</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className={`font-orbitron text-lg font-bold ${real.filter(p => p.pnl > 0).length >= real.length / 2 ? "neon-text" : "loss"}`}>
+            {real.filter(p => p.pnl > 0).length}/{real.length}
+          </div>
+          <div className="section-label mt-0.5">В плюсе</div>
+        </div>
+      </div>
+      {real.map((p, i) => (
+        <div key={p.figi} className="cyber-card rounded-none p-4 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] flex items-center justify-center font-orbitron text-[9px] font-bold text-[var(--cyber-cyan)] rounded-none">
+              {p.instrument_type === "etf" ? "ETF" : "АКЦ"}
+            </div>
+            <div>
+              <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">{p.figi.slice(-6)}</div>
+              <div className="section-label">{p.instrument_type === "etf" ? "ETF" : "Акция"} · {p.quantity} шт. · {p.current_price.toLocaleString("ru-RU")} ₽</div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className={`font-mono text-sm font-semibold ${p.pnl >= 0 ? "profit" : "loss"}`}>
+              {p.pnl >= 0 ? "+" : ""}{p.pnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+            </div>
+            <div className={`font-mono text-xs ${p.pnl_pct >= 0 ? "profit" : "loss"}`}>
+              {p.pnl_pct >= 0 ? "+" : ""}{p.pnl_pct.toFixed(2)}%
+            </div>
+          </div>
+        </div>
+      ))}
+      <button onClick={onRefresh} className="w-full py-2 font-mono text-xs border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] hover:text-[var(--cyber-cyan)] rounded-none transition-all flex items-center justify-center gap-1.5">
+        <Icon name="RefreshCw" size={11} /> Обновить портфель
+      </button>
+    </div>
+  );
+}
+
+/* ═══ История сделок — реальные операции ═══ */
+function TBankOrdersTab({ accountId }: { accountId: string }) {
+  const [ops, setOps] = useState<{ id: string; type: string; figi: string; quantity: number; price: number; payment: number; currency: string; date: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!accountId) { setLoading(false); return; }
+    authFetch(`${TBANK_URL}?action=operations&account_id=${accountId}`)
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setOps(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [accountId]);
+
+  const typeLabel: Record<string, { label: string; color: string }> = {
+    "OPERATION_TYPE_BUY": { label: "ПОКУПКА", color: "profit" },
+    "OPERATION_TYPE_BUY_CARD": { label: "ПОКУПКА", color: "profit" },
+    "OPERATION_TYPE_SELL": { label: "ПРОДАЖА", color: "loss" },
+    "OPERATION_TYPE_BROKER_FEE": { label: "КОМИССИЯ", color: "text-[var(--cyber-text-dim)]" },
+    "OPERATION_TYPE_INPUT": { label: "ПОПОЛНЕНИЕ", color: "neon-text-cyan" },
+  };
+
+  const trades = ops.filter(o => ["OPERATION_TYPE_BUY", "OPERATION_TYPE_BUY_CARD", "OPERATION_TYPE_SELL"].includes(o.type));
+  const totalPnl = ops.filter(o => o.type === "OPERATION_TYPE_SELL").reduce((a, o) => a + o.payment, 0);
+  const wins = ops.filter(o => o.type === "OPERATION_TYPE_SELL" && o.payment > 0).length;
+  const sells = ops.filter(o => o.type === "OPERATION_TYPE_SELL").length;
+
+  if (loading) return <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none"><Spinner /><span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю историю...</span></div>;
+
+  return (
+    <div className="space-y-3 animate-fade-in-up">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-lg font-bold neon-text-cyan">{trades.length}</div>
+          <div className="section-label mt-0.5">Сделок (30 дней)</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className={`font-orbitron text-lg font-bold ${totalPnl >= 0 ? "neon-text" : "loss"}`}>
+            {totalPnl >= 0 ? "+" : ""}{totalPnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+          </div>
+          <div className="section-label mt-0.5">P&L реализованный</div>
+        </div>
+        <div className="cyber-card-glow rounded-none p-3 text-center">
+          <div className="font-orbitron text-lg font-bold neon-text">
+            {sells > 0 ? Math.round(wins / sells * 100) : 0}%
+          </div>
+          <div className="section-label mt-0.5">Прибыльных продаж</div>
+        </div>
+      </div>
+
+      {trades.length === 0 ? (
+        <div className="cyber-card rounded-none p-8 text-center">
+          <div className="font-orbitron text-sm text-[var(--cyber-text-dim)]">НЕТ СДЕЛОК ЗА 30 ДНЕЙ</div>
+        </div>
+      ) : (
+        <div className="cyber-card rounded-none p-4">
+          <div className="section-label mb-3">ИСТОРИЯ ОПЕРАЦИЙ — 30 ДНЕЙ</div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[var(--cyber-border)]">
+                  {["Тип", "Инструмент", "Кол-во", "Цена", "Сумма", "Дата"].map(h => (
+                    <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trades.map((o, i) => {
+                  const tl = typeLabel[o.type] || { label: o.type, color: "text-[var(--cyber-text-dim)]" };
+                  const dateStr = o.date ? new Date(o.date).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+                  return (
+                    <tr key={o.id || i} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,212,255,0.03)]" style={{ animationDelay: `${i * 40}ms` }}>
+                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${tl.color}`}>{tl.label}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.figi?.slice(-8) || "—"}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.quantity || "—"}</td>
+                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.price > 0 ? `${o.price.toLocaleString("ru-RU")} ₽` : "—"}</td>
+                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.payment >= 0 ? "profit" : "loss"}`}>
+                        {o.payment >= 0 ? "+" : ""}{o.payment.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+                      </td>
+                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{dateStr}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
   const [tab, setTab] = useState<"balance" | "autobot" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
@@ -1340,73 +1499,10 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
       )}
 
       {/* ═══ СДЕЛКИ ═══ */}
-      {tab === "orders" && (
-        <div className="space-y-3 animate-fade-in-up">
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: "Сделок", val: String(TBANK_ORDERS.length), color: "neon-text-cyan" },
-              { label: "P&L итого", val: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(0)} ₽`, color: totalPnl >= 0 ? "profit" : "loss" },
-              { label: "Прибыльных", val: `${Math.round(wins / TBANK_ORDERS.length * 100)}%`, color: "neon-text" },
-            ].map(s => (
-              <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
-                <div className={`font-orbitron text-lg font-bold ${s.color}`}>{s.val}</div>
-                <div className="section-label mt-0.5">{s.label}</div>
-              </div>
-            ))}
-          </div>
-          <div className="cyber-card rounded-none p-4">
-            <div className="section-label mb-3">ИСТОРИЯ СДЕЛОК Т-БАНК</div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[var(--cyber-border)]">
-                    {["ID", "Тикер", "Тип", "Направление", "Лотов", "Цена", "P&L", "Статус"].map(h => (
-                      <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {TBANK_ORDERS.map((o, i) => (
-                    <tr key={o.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,212,255,0.03)] animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.id}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4 font-semibold">{o.ticker}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.type}</td>
-                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.dir === "BUY" ? "profit" : "loss"}`}>{o.dir === "BUY" ? "ПОКУПКА" : "ПРОДАЖА"}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.lots}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.price.toLocaleString("ru-RU")} ₽</td>
-                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.pnl >= 0 ? "profit" : "loss"}`}>{o.pnl >= 0 ? "+" : ""}{o.pnl} ₽</td>
-                      <td className="font-mono text-xs text-[var(--cyber-green)] py-2 pr-4">{o.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
+      {tab === "orders" && <TBankOrdersTab accountId={bal?.account_id || ""} />}
 
       {/* ═══ ПОРТФЕЛЬ ═══ */}
-      {tab === "portfolio" && (
-        <div className="space-y-3 animate-fade-in-up">
-          {[
-            { name: "Сбербанк (SBER)", type: "Акция", qty: 100, price: 297.4, pnl: 234.0, pnlPct: 0.8 },
-            { name: "Apple (AAPL)", type: "Акция", qty: 4, price: 188.4, pnl: 112.5, pnlPct: 1.4 },
-            { name: "Тинькофф iMOEX ETF", type: "ETF", qty: 500, price: 6.14, pnl: 30.0, pnlPct: 0.9 },
-            { name: "Яндекс (YNDX)", type: "Акция", qty: 8, price: 3812.0, pnl: -186.0, pnlPct: -0.6 },
-          ].map((p, i) => (
-            <div key={p.name} className="cyber-card rounded-none p-4 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-              <div>
-                <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">{p.name}</div>
-                <div className="section-label">{p.type} · {p.qty} шт. · {p.price.toLocaleString("ru-RU")} ₽</div>
-              </div>
-              <div className="text-right">
-                <div className={`font-mono text-sm font-semibold ${p.pnl >= 0 ? "profit" : "loss"}`}>{p.pnl >= 0 ? "+" : ""}{p.pnl} ₽</div>
-                <div className={`font-mono text-xs ${p.pnlPct >= 0 ? "profit" : "loss"}`}>{p.pnlPct >= 0 ? "+" : ""}{p.pnlPct}%</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {tab === "portfolio" && <TBankPortfolioTab positions={bal?.positions || []} loading={balanceLoading} onRefresh={() => { setBalanceLoading(true); fetchBalance(); }} />}
 
     </div>
   );
