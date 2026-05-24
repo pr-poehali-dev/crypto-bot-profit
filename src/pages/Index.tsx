@@ -2053,6 +2053,113 @@ function LivePositionsPage() {
   );
 }
 
+/* ===== SETTINGS PAGE ===== */
+function SettingsPage({ user, onLogout }: { user: { username: string; role: string }; onLogout: () => void }) {
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [newPw2, setNewPw2] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [showOld, setShowOld] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+
+  const changePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPw.length < 6) { setMsg({ text: "Новый пароль минимум 6 символов", ok: false }); return; }
+    if (newPw !== newPw2) { setMsg({ text: "Пароли не совпадают", ok: false }); return; }
+    setLoading(true);
+    try {
+      const r = await authFetch(AUTH_URL, {
+        method: "POST",
+        body: JSON.stringify({ action: "change_password", old_password: oldPw, new_password: newPw }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        setMsg({ text: "✓ Пароль успешно изменён", ok: true });
+        setOldPw(""); setNewPw(""); setNewPw2("");
+      } else {
+        setMsg({ text: d.error || "Ошибка", ok: false });
+      }
+    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
+    setLoading(false);
+    setTimeout(() => setMsg(null), 4000);
+  };
+
+  return (
+    <div className="space-y-4 max-w-md">
+
+      {/* Информация об аккаунте */}
+      <div className="cyber-card-glow rounded-none p-5 animate-fade-in-up">
+        <div className="section-label mb-4">МОЙ АККАУНТ</div>
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 flex items-center justify-center flex-shrink-0"
+            style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 15px rgba(0,255,136,0.3)" }}>
+            <Icon name="User" size={22} style={{ color: "var(--cyber-green)" }} />
+          </div>
+          <div>
+            <div className="font-orbitron text-base font-bold neon-text">{user.username.toUpperCase()}</div>
+            <div className="section-label mt-0.5">{user.role === "admin" ? "Администратор" : "Пользователь"}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Смена пароля */}
+      <form onSubmit={changePassword} className="cyber-card rounded-none p-5 animate-fade-in-up space-y-4">
+        <div className="section-label">СМЕНА ПАРОЛЯ</div>
+
+        {msg && (
+          <div className={`p-3 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>
+            {msg.text}
+          </div>
+        )}
+
+        {[
+          { label: "Текущий пароль", val: oldPw, set: setOldPw, show: showOld, toggleShow: () => setShowOld(!showOld), placeholder: "Введи текущий пароль" },
+          { label: "Новый пароль", val: newPw, set: setNewPw, show: showNew, toggleShow: () => setShowNew(!showNew), placeholder: "Минимум 6 символов" },
+          { label: "Повтори новый пароль", val: newPw2, set: setNewPw2, show: showNew, toggleShow: () => {}, placeholder: "Повтори новый пароль" },
+        ].map(f => (
+          <div key={f.label}>
+            <div className="section-label mb-1.5">{f.label}</div>
+            <div className="relative">
+              <input
+                value={f.val}
+                onChange={e => f.set(e.target.value)}
+                type={f.show ? "text" : "password"}
+                placeholder={f.placeholder}
+                required
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2.5 pr-10 rounded-none outline-none focus:border-[var(--cyber-green)] transition-colors"
+              />
+              <button type="button" onClick={f.toggleShow}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--cyber-text-dim)]">
+                <Icon name={f.show ? "EyeOff" : "Eye"} size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+
+        <button type="submit" disabled={loading || !oldPw || !newPw || !newPw2}
+          className="w-full py-2.5 font-orbitron text-xs font-bold border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+          {loading ? <><Spinner /><span>СОХРАНЕНИЕ...</span></> : "СОХРАНИТЬ ПАРОЛЬ"}
+        </button>
+      </form>
+
+      {/* Опасная зона */}
+      <div className="cyber-card rounded-none p-5 animate-fade-in-up border border-[rgba(255,61,113,0.2)]">
+        <div className="section-label mb-3 text-[var(--cyber-red)]">ОПАСНАЯ ЗОНА</div>
+        <div className="text-[11px] text-[var(--cyber-text-dim)] mb-3">
+          Выход завершит текущую сессию. Для доступа потребуется снова войти в систему.
+        </div>
+        <button onClick={onLogout}
+          className="w-full py-2 font-mono text-xs border border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)] rounded-none transition-all flex items-center justify-center gap-2">
+          <Icon name="LogOut" size={13} />
+          ВЫЙТИ ИЗ СИСТЕМЫ
+        </button>
+      </div>
+
+    </div>
+  );
+}
+
 /* ===== GENERIC ===== */
 function GenericPage({ title, icon }: { title: string; icon: string }) {
   return (
@@ -2187,7 +2294,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "signals": return <GenericPage title="ТОРГОВЫЕ СИГНАЛЫ" icon="Radio" />;
       case "risk": return <GenericPage title="РИСК-МЕНЕДЖМЕНТ" icon="Shield" />;
       case "alerts": return <GenericPage title="АЛЕРТЫ И УВЕДОМЛЕНИЯ" icon="Bell" />;
-      case "settings": return <GenericPage title="НАСТРОЙКИ" icon="Settings" />;
+      case "settings": return <SettingsPage user={user} onLogout={onLogout} />;
       default: return null;
     }
   };
