@@ -1870,9 +1870,11 @@ function ServerCronPanel() {
   const [status, setStatus] = useState<{
     enabled: boolean; interval_min: number; last_ping: string;
     last_trade_run: string; cycle_count: number; status: string;
+    autobot_enabled: boolean; tbank_scalp_enabled: boolean; bingx_scalp_enabled: boolean;
   } | null>(null);
   const [interval, setIntervalMin] = useState(15);
   const [loading, setLoading] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   const loadStatus = () => {
@@ -1891,6 +1893,17 @@ function ServerCronPanel() {
   const showMsg = (text: string, ok: boolean) => {
     setMsg({ text, ok });
     setTimeout(() => setMsg(null), 5000);
+  };
+
+  const toggleBot = async (bot: string, enabled: boolean) => {
+    setToggling(bot);
+    const r = await authFetch(KEEPALIVE_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "toggle_bot", bot, enabled }),
+    }).then(r => r.json());
+    setToggling(null);
+    if (r.ok) loadStatus();
+    else showMsg(r.error || "Ошибка", false);
   };
 
   const start = async () => {
@@ -1967,6 +1980,32 @@ function ServerCronPanel() {
           <div key={s.label} className="bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] p-2 rounded-none">
             <div className="section-label text-[9px] mb-0.5">{s.label}</div>
             <div className="font-mono text-xs text-[var(--cyber-text)]">{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Боты — тоггл включения */}
+      <div className="space-y-1">
+        <div className="section-label mb-2">АКТИВНЫЕ БОТЫ В ПЛАНИРОВЩИКЕ</div>
+        {[
+          { key: "autobot",      label: "Автобот Т-Банк",   icon: "Bot",         desc: "Акции · 7:00–23:00 МСК", enabled: status?.autobot_enabled ?? false },
+          { key: "tbank_scalp",  label: "Скальпер Т-Банк",  icon: "Zap",         desc: "Акции · RSI+EMA · 7:00–23:00 МСК", enabled: status?.tbank_scalp_enabled ?? false },
+          { key: "bingx_scalp",  label: "Скальпер BingX",   icon: "BarChart2",   desc: "Крипто · RSI+объём · 24/7", enabled: status?.bingx_scalp_enabled ?? false },
+        ].map(bot => (
+          <div key={bot.key} className={`flex items-center justify-between p-2.5 border rounded-none transition-all ${bot.enabled ? "border-[rgba(0,255,136,0.3)] bg-[rgba(0,255,136,0.04)]" : "border-[var(--cyber-border)]"}`}>
+            <div className="flex items-center gap-2">
+              <Icon name={bot.icon} size={13} className={bot.enabled ? "neon-text" : "text-[var(--cyber-text-dim)]"} />
+              <div>
+                <div className={`font-mono text-xs font-semibold ${bot.enabled ? "text-[var(--cyber-text)]" : "text-[var(--cyber-text-dim)]"}`}>{bot.label}</div>
+                <div className="font-mono text-[10px] text-[var(--cyber-text-dim)]">{bot.desc}</div>
+              </div>
+            </div>
+            <button
+              onClick={() => toggleBot(bot.key, !bot.enabled)}
+              disabled={toggling === bot.key}
+              className={`relative w-10 h-5 rounded-full transition-all flex-shrink-0 ${bot.enabled ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)]"} disabled:opacity-50`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${bot.enabled ? "left-5" : "left-0.5"}`} />
+            </button>
           </div>
         ))}
       </div>

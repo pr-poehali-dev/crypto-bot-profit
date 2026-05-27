@@ -12,6 +12,7 @@ SCHEMA    = os.environ.get("MAIN_DB_SCHEMA", "t_p28097026_crypto_bot_profit")
 SELF_URL  = os.environ.get("KEEPALIVE_SELF_URL", "")   # URL этой функции (из func2url.json)
 AUTOTRADER_URL = "https://functions.poehali.dev/f372165e-74bb-42e7-9a58-5830d08d29fb"
 SCALPER_URL    = "https://functions.poehali.dev/069c26ed-4e40-418f-a3f1-c49541d79bf9"
+BINGX_URL      = "https://functions.poehali.dev/fa611271-a7e0-4dfe-868f-3f1b55a81df7"
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -120,27 +121,51 @@ def run_trade_cycle(admin_id: int) -> dict:
     else:
         result["skipped"].append("autobot: выключен")
 
-    # Скальпер (user_settings)
-    conn = psycopg2.connect(DB_URL)
-    cur  = conn.cursor()
-    cur.execute(f"SELECT value FROM {SCHEMA}.user_settings WHERE key='scalp_enabled' AND user_id=%s", (admin_id,))
-    row  = cur.fetchone(); cur.close(); conn.close()
-    scalp_on = (row[0] if row else "") == "true"
+    def us_get(key: str) -> str:
+        conn = psycopg2.connect(DB_URL)
+        cur  = conn.cursor()
+        cur.execute(f"SELECT value FROM {SCHEMA}.user_settings WHERE key=%s AND user_id=%s", (key, admin_id))
+        row  = cur.fetchone(); cur.close(); conn.close()
+        return row[0] if row else ""
 
-    if scalp_on:
+    # ── Скальпер Т-Банк ───────────────────────────────────────────────────────
+    tbank_scalp_on = us_get("scalp_enabled") == "true"
+    if tbank_scalp_on:
+        if 7 <= msk_h < 23:
+            try:
+                r = requests.post(SCALPER_URL, json={"action": "run_scalp", "force": True},
+                                  headers=auth, timeout=28)
+                d = r.json()
+                result["scalper_tbank"] = {
+                    "ok":     d.get("ok", False),
+                    "bought": len(d.get("bought", [])),
+                    "sold":   len(d.get("sold", [])),
+                    "reason": d.get("reason"),
+                }
+            except Exception as e:
+                result["scalper_tbank"] = {"error": str(e)}
+        else:
+            result["skipped"].append("scalper_tbank: нерабочее время")
+    else:
+        result["skipped"].append("scalper_tbank: выключен")
+
+    # ── Скальпер BingX ────────────────────────────────────────────────────────
+    bingx_scalp_on = us_get("bingx_scalp_enabled") == "true"
+    if bingx_scalp_on:
         try:
-            r = requests.post(SCALPER_URL, json={"action": "run_scalp", "force": True},
+            r = requests.post(BINGX_URL, json={"action": "scalp_cycle"},
                               headers=auth, timeout=28)
             d = r.json()
-            result["scalper"] = {
-                "ok": d.get("ok", False),
-                "bought": len(d.get("bought", [])),
-                "sold": len(d.get("sold", [])),
+            result["scalper_bingx"] = {
+                "ok":        d.get("ok", False),
+                "bought":    len(d.get("bought", [])),
+                "sold":      len(d.get("sold", [])),
+                "open_count": d.get("open_count", 0),
             }
         except Exception as e:
-            result["scalper"] = {"error": str(e)}
+            result["scalper_bingx"] = {"error": str(e)}
     else:
-        result["skipped"].append("scalper: выключен")
+        result["skipped"].append("scalper_bingx: выключен")
 
     return result
 
@@ -172,14 +197,50 @@ def handler(event: dict, context) -> dict:
 
     # ── Статус (публичный для фронтенда) ─────────────────────────────────────
     if action == "status":
+        admin_id = get_admin_id()
+        def _us(key):
+            conn = psycopg2.connect(DB_URL)
+            cur  = conn.cursor()
+            cur.execute(f"SELECT value FROM {SCHEMA}.user_settings WHERE key=%s AND user_id=%s", (key, admin_id))
+            row  = cur.fetchone(); cur.close(); conn.close()
+            return row[0] if row else "false"
         return resp({
-            "enabled":       cron_get("enabled") == "true",
-            "interval_min":  int(cron_get("interval_min") or 15),
-            "last_ping":     cron_get("last_ping"),
-            "last_trade_run":cron_get("last_trade_run"),
-            "cycle_count":   int(cron_get("cycle_count") or 0),
-            "status":        cron_get("status"),
+            "enabled":             cron_get("enabled") == "true",
+            "interval_min":        int(cron_get("interval_min") or 15),
+            "last_ping":           cron_get("last_ping"),
+            "last_trade_run":      cron_get("last_trade_run"),
+            "cycle_count":         int(cron_get("cycle_count") or 0),
+            "status":              cron_get("status"),
+            "autobot_enabled":     db_get_setting("auto_bot_enabled") == "true",
+            "tbank_scalp_enabled": _us("scalp_enabled") == "true",
+            "bingx_scalp_enabled": _us("bingx_scalp_enabled") == "true",
         })
+
+    # ── Включить/выключить отдельный бот ─────────────────────────────────────
+    if action == "toggle_bot":
+        if not authed(): return resp({"error": "Не авторизован"}, 401)
+        bot  = body.get("bot", "")
+        val  = "true" if body.get("enabled") else "false"
+        admin_id = get_admin_id()
+        conn = psycopg2.connect(DB_URL)
+        cur  = conn.cursor()
+        if bot == "autobot":
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.bot_settings (user_id,key,value) VALUES(%s,'auto_bot_enabled',%s) "
+                f"ON CONFLICT (user_id,key) DO UPDATE SET value=%s, updated_at=NOW()",
+                (admin_id, val, val))
+        elif bot == "tbank_scalp":
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.user_settings (user_id,key,value) VALUES(%s,'scalp_enabled',%s) "
+                f"ON CONFLICT (user_id,key) DO UPDATE SET value=%s",
+                (admin_id, val, val))
+        elif bot == "bingx_scalp":
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.user_settings (user_id,key,value) VALUES(%s,'bingx_scalp_enabled',%s) "
+                f"ON CONFLICT (user_id,key) DO UPDATE SET value=%s",
+                (admin_id, val, val))
+        conn.commit(); cur.close(); conn.close()
+        return resp({"ok": True, "bot": bot, "enabled": val == "true"})
 
     # ── Старт планировщика ────────────────────────────────────────────────────
     if action == "start":
