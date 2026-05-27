@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "GET status — публичный",
+      "method": "GET",
+      "path": "/?action=status",
+      "expectedStatus": 200,
+      "expectedBody": {"enabled": false},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "start — нет сессии",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "start"},
+      "expectedStatus": 401,
+      "bodyMatcher": "partial"
+    }
+  ]
+}
