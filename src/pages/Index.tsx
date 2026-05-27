@@ -126,6 +126,7 @@ const NAV_ITEMS = [
   { id: "trading", icon: "TrendingUp", label: "Торговля" },
   { id: "strategies", icon: "Brain", label: "Стратегии" },
   { id: "tbank", icon: "Building2", label: "Т-Банк" },
+  { id: "bingx", icon: "BarChart2", label: "BingX" },
   { id: "autobot", icon: "Bot", label: "Автобот" },
   { id: "wallet", icon: "Wallet", label: "Кошелёк" },
   { id: "history", icon: "History", label: "История" },
@@ -2991,6 +2992,430 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
   );
 }
 
+/* ===== BINGX PAGE ===== */
+const BINGX_URL = "https://functions.poehali.dev/fa611271-a7e0-4dfe-868f-3f1b55a81df7";
+
+function BingXPage() {
+  const [tab, setTab] = useState<"keys" | "balance" | "spot" | "futures" | "scalper">("keys");
+  const [hasKeys, setHasKeys] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  const [keyPreview, setKeyPreview] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  // Баланс
+  const [balances, setBalances] = useState<{ asset: string; free: string; locked: string }[]>([]);
+  const [futBal, setFutBal] = useState<{ balance?: string; equity?: string; unrealizedProfit?: string } | null>(null);
+  const [loadingBal, setLoadingBal] = useState(false);
+
+  // Спот
+  const [tickers, setTickers] = useState<{ symbol: string; lastPrice: string; priceChangePercent: string; quoteVolume: string }[]>([]);
+  const [spotSym, setSpotSym] = useState("BTC-USDT");
+  const [spotAmt, setSpotAmt] = useState("20");
+  const [spotLoading, setSpotLoading] = useState(false);
+  const [spotHistory, setSpotHistory] = useState<{ id: number; symbol: string; side: string; quantity: number; price: number; pnl: number | null; status: string; created_at: string }[]>([]);
+
+  // Фьючерсы
+  const [positions, setPositions] = useState<{ symbol: string; positionSide: string; positionAmt: string; entryPrice: string; unrealizedProfit: string; leverage: string }[]>([]);
+  const [futSym, setFutSym] = useState("BTC-USDT");
+  const [futSide, setFutSide] = useState("BUY");
+  const [futAmt, setFutAmt] = useState("10");
+  const [futLev, setFutLev] = useState("10");
+  const [futLoading, setFutLoading] = useState(false);
+
+  // Скальпер
+  const [scalpAmt, setScalpAmt] = useState("20");
+  const [scalpTarget, setScalpTarget] = useState("0.8");
+  const [scalpStop, setScalpStop] = useState("1.5");
+  const [scalpRunning, setScalpRunning] = useState(false);
+  const [scalpMsg, setScalpMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    authFetch(`${BINGX_URL}?action=check_keys`).then(r => r.json()).then(d => {
+      setHasKeys(d.has_keys);
+      setKeyPreview(d.api_key_preview || "");
+      if (d.has_keys) setTab("balance");
+    }).catch(() => {});
+  }, []);
+
+  const saveKeys = async () => {
+    if (!apiKey || !secretKey) return;
+    setSaving(true); setMsg(null);
+    const r = await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "save_keys", api_key: apiKey, secret_key: secretKey }) });
+    const d = await r.json();
+    setSaving(false);
+    if (d.ok) { setHasKeys(true); setKeyPreview(apiKey.slice(0, 8) + "..."); setMsg({ text: "Ключи сохранены!", ok: true }); setTab("balance"); }
+    else setMsg({ text: d.error || "Ошибка", ok: false });
+  };
+
+  const loadBalance = async () => {
+    setLoadingBal(true);
+    const [sb, fb] = await Promise.all([
+      authFetch(`${BINGX_URL}?action=balance`).then(r => r.json()),
+      authFetch(`${BINGX_URL}?action=futures_balance`).then(r => r.json()),
+    ]);
+    if (sb.ok) setBalances(sb.balances || []);
+    if (fb.ok) setFutBal(fb.data);
+    setLoadingBal(false);
+  };
+
+  const loadSpot = async () => {
+    setSpotLoading(true);
+    const [tr, hr] = await Promise.all([
+      authFetch(`${BINGX_URL}?action=spot_tickers`).then(r => r.json()),
+      authFetch(`${BINGX_URL}?action=spot_history`).then(r => r.json()),
+    ]);
+    if (tr.ok) setTickers(tr.tickers || []);
+    if (hr.ok) setSpotHistory(hr.trades || []);
+    setSpotLoading(false);
+  };
+
+  const loadFutures = async () => {
+    setFutLoading(true);
+    const r = await authFetch(`${BINGX_URL}?action=futures_positions`).then(r => r.json());
+    if (r.ok) setPositions(r.positions || []);
+    setFutLoading(false);
+  };
+
+  useEffect(() => {
+    if (!hasKeys) return;
+    if (tab === "balance") loadBalance();
+    if (tab === "spot") loadSpot();
+    if (tab === "futures") loadFutures();
+   
+  }, [tab, hasKeys]);
+
+  const spotBuy = async () => {
+    setSpotLoading(true); setMsg(null);
+    const r = await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "spot_buy", symbol: spotSym, amount: parseFloat(spotAmt) }) }).then(r => r.json());
+    setSpotLoading(false);
+    if (r.ok) { setMsg({ text: `✓ Куплено ${spotSym} на $${spotAmt}`, ok: true }); loadSpot(); }
+    else setMsg({ text: r.error || "Ошибка", ok: false });
+  };
+
+  const openFutures = async () => {
+    setFutLoading(true); setMsg(null);
+    const r = await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "futures_open", symbol: futSym, side: futSide, amount: parseFloat(futAmt), leverage: parseInt(futLev) }) }).then(r => r.json());
+    setFutLoading(false);
+    if (r.ok) { setMsg({ text: `✓ Открыт ${futSide === "BUY" ? "LONG" : "SHORT"} ${futSym}`, ok: true }); loadFutures(); }
+    else setMsg({ text: r.error || "Ошибка", ok: false });
+  };
+
+  const closeFutures = async (sym: string, posSide: string, amt: string) => {
+    const r = await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "futures_close", symbol: sym, pos_side: posSide, amount: parseFloat(amt) }) }).then(r => r.json());
+    if (r.ok) { setMsg({ text: `✓ Позиция ${sym} закрыта`, ok: true }); loadFutures(); }
+    else setMsg({ text: r.error || "Ошибка", ok: false });
+  };
+
+  const runScalp = async () => {
+    setScalpRunning(true); setScalpMsg(null);
+    await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "save_scalp_settings", bingx_scalp_amount: scalpAmt, bingx_scalp_target: scalpTarget, bingx_scalp_stop: scalpStop }) });
+    const r = await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "scalp_cycle" }) }).then(r => r.json());
+    setScalpRunning(false);
+    if (r.ok) setScalpMsg({ text: `⚡ Куплено: ${r.bought?.length || 0} · Продано: ${r.sold?.length || 0} · Открытых: ${r.open_count || 0}`, ok: true });
+    else setScalpMsg({ text: r.error || "Ошибка", ok: false });
+  };
+
+  const TABS = [
+    { id: "keys", label: "API Ключи", icon: "Key" },
+    { id: "balance", label: "Баланс", icon: "Wallet" },
+    { id: "spot", label: "Спот", icon: "ShoppingCart" },
+    { id: "futures", label: "Фьючерсы", icon: "TrendingUp" },
+    { id: "scalper", label: "Скальпинг", icon: "Zap" },
+  ] as const;
+
+  return (
+    <div className="space-y-4 animate-fade-in-up">
+      {/* Шапка */}
+      <div className="cyber-card-glow rounded-none p-4 flex items-center gap-3">
+        <div className="w-10 h-10 flex items-center justify-center flex-shrink-0" style={{ border: "1px solid var(--cyber-green)", boxShadow: "0 0 12px rgba(0,255,136,0.3)" }}>
+          <Icon name="BarChart2" size={20} style={{ color: "var(--cyber-green)" }} />
+        </div>
+        <div>
+          <div className="font-orbitron text-base font-bold neon-text">BINGX</div>
+          <div className="text-[11px] font-mono text-[var(--cyber-text-dim)]">
+            {hasKeys ? `Подключено · ${keyPreview}` : "Требуются API ключи"}
+          </div>
+        </div>
+        {hasKeys && <div className="ml-auto flex items-center gap-1.5"><div className="status-dot online" /><span className="font-mono text-[11px] text-[var(--cyber-green)]">ONLINE</span></div>}
+      </div>
+
+      {/* Уведомление */}
+      {msg && (
+        <div className={`rounded-none p-3 font-mono text-xs border ${msg.ok ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-red)] text-[var(--cyber-red)]"}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* Вкладки */}
+      <div className="flex gap-1 flex-wrap">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => { setMsg(null); setTab(t.id); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 font-mono text-xs border transition-all rounded-none
+              ${tab === t.id ? "border-[var(--cyber-green)] text-[var(--cyber-green)] bg-[rgba(0,255,136,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-green)]"}`}>
+            <Icon name={t.icon} size={12} />{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── API КЛЮЧИ ── */}
+      {tab === "keys" && (
+        <div className="cyber-card rounded-none p-5 space-y-4">
+          <div className="font-orbitron text-sm neon-text mb-1">КАК ПОЛУЧИТЬ КЛЮЧИ BINGX</div>
+          <ol className="space-y-2 text-[12px] text-[var(--cyber-text-dim)] font-mono">
+            <li className="flex gap-2"><span className="text-[var(--cyber-green)] font-bold">1.</span> Зайди на <span className="text-[var(--cyber-cyan)]">bingx.com</span> → Аккаунт → API Management</li>
+            <li className="flex gap-2"><span className="text-[var(--cyber-green)] font-bold">2.</span> Нажми «Создать API» → введи название (например «КиберБот»)</li>
+            <li className="flex gap-2"><span className="text-[var(--cyber-green)] font-bold">3.</span> Включи права: <span className="text-[var(--cyber-yellow)]">Чтение</span> + <span className="text-[var(--cyber-yellow)]">Торговля</span></li>
+            <li className="flex gap-2"><span className="text-[var(--cyber-green)] font-bold">4.</span> Скопируй API Key и Secret Key — вставь ниже</li>
+          </ol>
+          <div className="border border-[rgba(255,200,0,0.3)] bg-[rgba(255,200,0,0.05)] p-3 text-[11px] font-mono text-[var(--cyber-yellow)]">
+            ⚠ Не включай «Вывод средств» в правах API — это лишнее
+          </div>
+          <div className="space-y-3">
+            <div>
+              <div className="section-label mb-1">API KEY</div>
+              <input value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Вставьте API Key..."
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+            </div>
+            <div>
+              <div className="section-label mb-1">SECRET KEY</div>
+              <input value={secretKey} onChange={e => setSecretKey(e.target.value)} type="password" placeholder="Вставьте Secret Key..."
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+            </div>
+            <button onClick={saveKeys} disabled={saving || !apiKey || !secretKey}
+              className="w-full cyber-btn-primary py-2.5 font-orbitron text-xs tracking-widest disabled:opacity-40">
+              {saving ? "СОХРАНЕНИЕ..." : "СОХРАНИТЬ И ПОДКЛЮЧИТЬ"}
+            </button>
+          </div>
+          {hasKeys && <div className="text-[11px] font-mono text-[var(--cyber-green)]">✓ Ключи уже добавлены: {keyPreview}</div>}
+        </div>
+      )}
+
+      {/* ── БАЛАНС ── */}
+      {tab === "balance" && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="section-label">СПОТ БАЛАНС</div>
+            <button onClick={loadBalance} disabled={loadingBal} className="cyber-btn px-3 py-1 text-xs font-mono">
+              {loadingBal ? "..." : "↺ Обновить"}
+            </button>
+          </div>
+          {balances.length === 0 && !loadingBal && <div className="section-label text-center py-6">Нет активов или идёт загрузка...</div>}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {balances.map(b => (
+              <div key={b.asset} className="cyber-card rounded-none p-3">
+                <div className="font-orbitron text-sm neon-text">{b.asset}</div>
+                <div className="font-mono text-sm mt-1">{parseFloat(b.free).toFixed(6)}</div>
+                {parseFloat(b.locked) > 0 && <div className="font-mono text-[10px] text-[var(--cyber-text-dim)]">В ордерах: {parseFloat(b.locked).toFixed(6)}</div>}
+              </div>
+            ))}
+          </div>
+
+          {futBal && (
+            <div className="cyber-card rounded-none p-4 mt-2">
+              <div className="section-label mb-3">ФЬЮЧЕРСНЫЙ СЧЁТ</div>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { label: "Баланс", val: parseFloat(futBal.balance || "0").toFixed(2) + " USDT" },
+                  { label: "Эквити", val: parseFloat(futBal.equity || "0").toFixed(2) + " USDT" },
+                  { label: "Нереализ. P&L", val: parseFloat(futBal.unrealizedProfit || "0").toFixed(2) + " USDT" },
+                ].map(s => (
+                  <div key={s.label} className="text-center">
+                    <div className="font-mono text-sm neon-text-cyan">{s.val}</div>
+                    <div className="section-label mt-0.5">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── СПОТ ── */}
+      {tab === "spot" && (
+        <div className="space-y-4">
+          {/* Форма покупки */}
+          <div className="cyber-card rounded-none p-4 space-y-3">
+            <div className="section-label">КУПИТЬ НА СПОТЕ</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="section-label mb-1">СИМВОЛ</div>
+                <select value={spotSym} onChange={e => setSpotSym(e.target.value)}
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]">
+                  {tickers.slice(0, 20).map(t => <option key={t.symbol} value={t.symbol}>{t.symbol}</option>)}
+                </select>
+              </div>
+              <div>
+                <div className="section-label mb-1">СУММА USDT</div>
+                <input value={spotAmt} onChange={e => setSpotAmt(e.target.value)} type="number" min="5"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+            </div>
+            <button onClick={spotBuy} disabled={spotLoading}
+              className="w-full cyber-btn-primary py-2.5 font-orbitron text-xs tracking-widest disabled:opacity-40">
+              {spotLoading ? "ВЫПОЛНЯЕТСЯ..." : `КУПИТЬ ${spotSym}`}
+            </button>
+          </div>
+
+          {/* Топ тикеры */}
+          <div>
+            <div className="section-label mb-2">ТОП-20 ПО ОБЪЁМУ</div>
+            <div className="space-y-1">
+              {tickers.slice(0, 20).map(t => {
+                const chg = parseFloat(t.priceChangePercent || "0");
+                return (
+                  <div key={t.symbol} onClick={() => setSpotSym(t.symbol)}
+                    className={`cyber-card rounded-none p-2.5 flex items-center justify-between cursor-pointer hover:border-[var(--cyber-green)] transition-all ${spotSym === t.symbol ? "border-[var(--cyber-green)]" : ""}`}>
+                    <span className="font-mono text-sm">{t.symbol}</span>
+                    <span className="font-mono text-sm">${parseFloat(t.lastPrice || "0").toFixed(4)}</span>
+                    <span className={`font-mono text-xs ${chg >= 0 ? "profit" : "loss"}`}>{chg >= 0 ? "+" : ""}{chg.toFixed(2)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* История */}
+          {spotHistory.length > 0 && (
+            <div>
+              <div className="section-label mb-2">МОИ СДЕЛКИ</div>
+              <div className="space-y-1">
+                {spotHistory.slice(0, 10).map(t => (
+                  <div key={t.id} className="cyber-card rounded-none p-2.5 flex items-center justify-between">
+                    <span className="font-mono text-xs">{t.symbol}</span>
+                    <span className={`font-mono text-xs px-1.5 py-0.5 ${t.status === "open" ? "text-[var(--cyber-yellow)]" : "text-[var(--cyber-text-dim)]"}`}>{t.status.toUpperCase()}</span>
+                    {t.pnl != null && <span className={`font-mono text-xs ${t.pnl >= 0 ? "profit" : "loss"}`}>{t.pnl >= 0 ? "+" : ""}{t.pnl.toFixed(4)}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ФЬЮЧЕРСЫ ── */}
+      {tab === "futures" && (
+        <div className="space-y-4">
+          <div className="cyber-card rounded-none p-4 space-y-3">
+            <div className="section-label">ОТКРЫТЬ ПОЗИЦИЮ</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="section-label mb-1">СИМВОЛ</div>
+                <input value={futSym} onChange={e => setFutSym(e.target.value)} placeholder="BTC-USDT"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+              <div>
+                <div className="section-label mb-1">СТОРОНА</div>
+                <div className="flex gap-1">
+                  {["BUY", "SELL"].map(s => (
+                    <button key={s} onClick={() => setFutSide(s)}
+                      className={`flex-1 py-2 font-orbitron text-xs border rounded-none transition-all ${futSide === s ? (s === "BUY" ? "border-[var(--cyber-green)] text-[var(--cyber-green)] bg-[rgba(0,255,136,0.1)]" : "border-[var(--cyber-red)] text-[var(--cyber-red)] bg-[rgba(255,61,113,0.1)]") : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                      {s === "BUY" ? "LONG" : "SHORT"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="section-label mb-1">ОБЪЁМ (USDT)</div>
+                <input value={futAmt} onChange={e => setFutAmt(e.target.value)} type="number" min="1"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+              <div>
+                <div className="section-label mb-1">ПЛЕЧО x</div>
+                <input value={futLev} onChange={e => setFutLev(e.target.value)} type="number" min="1" max="125"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+            </div>
+            <button onClick={openFutures} disabled={futLoading}
+              className={`w-full py-2.5 font-orbitron text-xs tracking-widest border rounded-none transition-all disabled:opacity-40 ${futSide === "BUY" ? "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]" : "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]"}`}>
+              {futLoading ? "ОТКРЫВАЮ..." : `ОТКРЫТЬ ${futSide === "BUY" ? "LONG" : "SHORT"} x${futLev}`}
+            </button>
+          </div>
+
+          {/* Открытые позиции */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="section-label">ОТКРЫТЫЕ ПОЗИЦИИ</div>
+              <button onClick={loadFutures} className="cyber-btn px-3 py-1 text-xs font-mono">↺</button>
+            </div>
+            {positions.length === 0
+              ? <div className="section-label text-center py-6">Нет открытых позиций</div>
+              : positions.map((p, i) => {
+                const pnl = parseFloat(p.unrealizedProfit || "0");
+                return (
+                  <div key={i} className="cyber-card rounded-none p-3 flex items-center justify-between gap-2 mb-1">
+                    <div>
+                      <div className="font-mono text-sm">{p.symbol}</div>
+                      <div className={`font-mono text-[10px] ${p.positionSide === "LONG" ? "profit" : "loss"}`}>{p.positionSide} · x{p.leverage}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Вход</div>
+                      <div className="font-mono text-sm">${parseFloat(p.entryPrice || "0").toFixed(4)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className={`font-mono text-sm font-bold ${pnl >= 0 ? "profit" : "loss"}`}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(4)}</div>
+                      <div className="section-label">P&L</div>
+                    </div>
+                    <button onClick={() => closeFutures(p.symbol, p.positionSide, p.positionAmt)}
+                      className="cyber-btn px-2 py-1 text-[10px] font-mono border-[var(--cyber-red)] text-[var(--cyber-red)]">
+                      Закрыть
+                    </button>
+                  </div>
+                );
+              })
+            }
+          </div>
+        </div>
+      )}
+
+      {/* ── СКАЛЬПИНГ ── */}
+      {tab === "scalper" && (
+        <div className="space-y-4">
+          <div className="cyber-card rounded-none p-4 space-y-4">
+            <div className="font-orbitron text-sm neon-text">СКАЛЬПЕР BINGX</div>
+            <div className="text-[11px] text-[var(--cyber-text-dim)] font-mono leading-relaxed">
+              Анализирует топ-20 пар по объёму. Покупает при <span className="text-[var(--cyber-green)]">RSI &lt; 35</span> + всплеске объёма. Автоматически продаёт при достижении цели или стопа.
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <div className="section-label mb-1">СУММА (USDT)</div>
+                <input value={scalpAmt} onChange={e => setScalpAmt(e.target.value)} type="number" min="5"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+              <div>
+                <div className="section-label mb-1">ТЕЙК %</div>
+                <input value={scalpTarget} onChange={e => setScalpTarget(e.target.value)} type="number" step="0.1" min="0.1"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+              <div>
+                <div className="section-label mb-1">СТОП %</div>
+                <input value={scalpStop} onChange={e => setScalpStop(e.target.value)} type="number" step="0.1" min="0.1"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+              </div>
+            </div>
+            <button onClick={runScalp} disabled={scalpRunning}
+              className="w-full cyber-btn-primary py-3 font-orbitron text-xs tracking-widest disabled:opacity-40">
+              {scalpRunning ? "АНАЛИЗ РЫНКА..." : "⚡ ЗАПУСТИТЬ ЦИКЛ"}
+            </button>
+            {scalpMsg && (
+              <div className={`p-3 font-mono text-xs border rounded-none ${scalpMsg.ok ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-red)] text-[var(--cyber-red)]"}`}>
+                {scalpMsg.text}
+              </div>
+            )}
+          </div>
+          <div className="cyber-card rounded-none p-3 border border-[rgba(255,200,0,0.2)]">
+            <div className="flex items-start gap-2 text-[11px] font-mono text-[var(--cyber-yellow)]">
+              <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+              Торговля на криптобирже несёт риски. Используй только ту сумму, потерю которой готов принять.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ===== GENERIC ===== */
 function GenericPage({ title, icon }: { title: string; icon: string }) {
   return (
@@ -3155,6 +3580,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "trading": return <TradingPage />;
       case "strategies": return <StrategiesPage />;
       case "tbank": return <TBankPage refreshKey={balanceRefreshKey} />;
+      case "bingx": return <BingXPage />;
       case "autobot": return <AutoBotPage
         botEnabled={botEnabled} setBotEnabled={setBotEnabled}
         botIntervalMin={botIntervalMin} setBotIntervalMin={setBotIntervalMin}
