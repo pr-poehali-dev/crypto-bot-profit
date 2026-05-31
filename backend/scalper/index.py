@@ -49,47 +49,109 @@ def get_candles(figi, token, interval="CANDLE_INTERVAL_5_MIN", hours=6):
     }, token)
     return d.get("candles", [])
 
-def rsi(prices, period=14):
-    if len(prices) < period + 1: return 50
-    gains = [max(prices[i]-prices[i-1], 0) for i in range(1, len(prices))]
-    losses = [max(prices[i-1]-prices[i], 0) for i in range(1, len(prices))]
-    ag = sum(gains[-period:]) / period
-    al = sum(losses[-period:]) / period
-    if al == 0: return 100
-    return round(100 - 100 / (1 + ag / al), 1)
+# ── Индикаторы: RSI + EMA + MACD ─────────────────────────────────────────────
 
-def volatility_score(candles):
-    """Оценка волатильности — чем выше тем лучше для скальпинга."""
-    if len(candles) < 5: return 0
-    ranges = [(money(c.get("high")) - money(c.get("low"))) / max(money(c.get("low")), 0.01) * 100 for c in candles[-10:]]
-    return sum(ranges) / len(ranges)
+def calc_rsi(prices, period=14):
+    if len(prices) < period + 1: return 50.0
+    gains  = [max(prices[i]-prices[i-1], 0) for i in range(1, len(prices))]
+    losses = [max(prices[i-1]-prices[i], 0) for i in range(1, len(prices))]
+    ag = sum(gains[-period:])  / period
+    al = sum(losses[-period:]) / period
+    if al == 0: return 100.0
+    return round(100 - 100 / (1 + ag / al), 2)
+
+def calc_ema(prices, n):
+    if len(prices) < n: return prices[-1] if prices else 0.0
+    k = 2 / (n + 1); e = prices[0]
+    for p in prices[1:]: e = p * k + e * (1 - k)
+    return e
+
+def calc_macd(prices, fast=12, slow=26, signal=9):
+    """Возвращает (macd_line, signal_line, histogram)."""
+    if len(prices) < slow + signal: return 0.0, 0.0, 0.0
+    ema_fast = [calc_ema(prices[:i+1], fast) for i in range(len(prices))]
+    ema_slow = [calc_ema(prices[:i+1], slow) for i in range(len(prices))]
+    macd_line = [f - s for f, s in zip(ema_fast, ema_slow)]
+    sig_line  = calc_ema(macd_line[-signal*2:], signal)
+    histogram = macd_line[-1] - sig_line
+    return round(macd_line[-1], 6), round(sig_line, 6), round(histogram, 6)
+
+def combo_signal(prices):
+    """
+    Комбо-сигнал RSI + EMA + MACD.
+    BUY:  RSI < 40  И EMA9 > EMA21  И MACD гистограмма растёт (histogram > prev_histogram)
+    SELL: RSI > 60  И EMA9 < EMA21  И MACD гистограмма падает
+    Возвращает ('BUY'|'SELL'|'HOLD', rsi, macd_hist, ema_cross)
+    """
+    if len(prices) < 30: return "HOLD", 50.0, 0.0, 0.0
+    rsi_val  = calc_rsi(prices)
+    ema9     = calc_ema(prices, 9)
+    ema21    = calc_ema(prices, 21)
+    ema9_p   = calc_ema(prices[:-1], 9)
+    ema21_p  = calc_ema(prices[:-1], 21)
+    ema_bull = ema9 > ema21                        # быстрая выше медленной
+    ema_cross_up   = ema9 > ema21 and ema9_p <= ema21_p   # пересечение вверх
+    ema_cross_down = ema9 < ema21 and ema9_p >= ema21_p   # пересечение вниз
+    macd, sig, hist = calc_macd(prices)
+    _, _, hist_p    = calc_macd(prices[:-1])
+    macd_grow = hist > hist_p                      # гистограмма растёт
+    macd_fall = hist < hist_p                      # гистограмма падает
+    macd_bull = hist > 0                           # MACD выше нуля
+    macd_bear = hist < 0
+
+    # ── BUY: все три сигнала согласованы на покупку ─────────────────────────
+    buy_score = 0
+    if rsi_val < 40:           buy_score += 1      # RSI перепродан
+    if rsi_val < 35:           buy_score += 1      # усиление сигнала
+    if ema_bull or ema_cross_up: buy_score += 1    # EMA бычий тренд
+    if macd_grow:              buy_score += 1      # MACD разворачивается вверх
+    if not macd_bear:          buy_score += 1      # не в зоне медвежьего MACD
+
+    # ── SELL: все три на продажу ─────────────────────────────────────────────
+    sell_score = 0
+    if rsi_val > 60:           sell_score += 1
+    if rsi_val > 65:           sell_score += 1
+    if not ema_bull or ema_cross_down: sell_score += 1
+    if macd_fall:              sell_score += 1
+    if macd_bear:              sell_score += 1
+
+    if buy_score >= 3:   signal = "BUY"
+    elif sell_score >= 3: signal = "SELL"
+    else:                signal = "HOLD"
+
+    return signal, rsi_val, hist, round(ema9 - ema21, 4)
 
 def volume_score(candles):
     """Рост объёма относительно среднего."""
     if len(candles) < 5: return 0
     vols = [float(c.get("volume", 0)) for c in candles]
-    avg = sum(vols[:-3]) / max(len(vols[:-3]), 1)
+    avg  = sum(vols[:-3]) / max(len(vols[:-3]), 1)
     recent = sum(vols[-3:]) / 3
     return recent / max(avg, 1)
 
 def score_instrument(figi, token):
-    """Комплексная оценка инструмента для скальпинга (0-100)."""
-    candles = get_candles(figi, token, interval="CANDLE_INTERVAL_5_MIN", hours=3)
-    if len(candles) < 15: return 0, 50, 0
+    """
+    Комплексная оценка инструмента: RSI + EMA + MACD + объём.
+    Возвращает (score 0-100, signal, rsi, macd_hist).
+    """
+    candles = get_candles(figi, token, interval="CANDLE_INTERVAL_5_MIN", hours=4)
+    if len(candles) < 30: return 0, "HOLD", 50.0, 0.0
     prices = [money(c.get("close")) for c in candles if c.get("isComplete")]
-    if len(prices) < 14: return 0, 50, 0
-    r = rsi(prices)
-    vol = volatility_score(candles)
-    vm = volume_score(candles)
-    # Хороший скальпинг: RSI в зоне 35-45 (дно) или 55-65 (рост), волатильность > 0.3%, объём растёт
-    rsi_score = 0
-    if 30 <= r <= 45: rsi_score = 80  # перепроданность — хорошая покупка
-    elif 45 <= r <= 55: rsi_score = 40
-    elif 55 <= r <= 70: rsi_score = 60
-    vol_score = min(vol * 20, 100)
-    vm_score = min((vm - 1) * 50, 100) if vm > 1 else 0
-    total = rsi_score * 0.4 + vol_score * 0.35 + vm_score * 0.25
-    return round(total, 1), r, round(vol, 3)
+    if len(prices) < 30: return 0, "HOLD", 50.0, 0.0
+
+    signal, rsi_val, macd_hist, ema_diff = combo_signal(prices)
+    vm  = volume_score(candles)
+
+    if signal == "BUY":
+        # Чем ниже RSI и выше объём — тем выше скор
+        rsi_bonus  = max(0, (40 - rsi_val) * 2)          # до +20
+        vol_bonus  = min(30, (vm - 1) * 20) if vm > 1 else 0
+        macd_bonus = min(20, abs(macd_hist) * 10000)
+        score = 50 + rsi_bonus + vol_bonus + macd_bonus
+    else:
+        score = 0
+
+    return round(min(score, 100), 1), signal, round(rsi_val, 1), round(macd_hist, 6)
 
 def add_referral_earning(user_id, trade_amount, token):
     """Начислить реферальный доход владельцу."""
@@ -151,12 +213,12 @@ def handler(event: dict, context) -> dict:
         sample = random.sample(all_inst, min(20, len(all_inst)))
         candidates = []
         for inst in sample:
-            score, rsi_val, vol = score_instrument(inst["figi"], token)
-            if score >= 50:
+            score, signal, rsi_val, macd_hist = score_instrument(inst["figi"], token)
+            if score >= 50 and signal == "BUY":
                 lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [inst["figi"]]}, token)
                 price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
                 if price > 0:
-                    candidates.append({"figi": inst["figi"], "ticker": inst["ticker"], "name": inst["name"], "score": score, "rsi": rsi_val, "volatility": vol, "price": price, "lot": inst.get("lot", 1)})
+                    candidates.append({"figi": inst["figi"], "ticker": inst["ticker"], "name": inst["name"], "score": score, "signal": signal, "rsi": rsi_val, "macd": macd_hist, "price": price, "lot": inst.get("lot", 1)})
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return resp({"candidates": candidates[:10]})
 
@@ -281,8 +343,8 @@ def handler(event: dict, context) -> dict:
             for inst in sample:
                 if free_cash < amount * 0.9: break
                 if open_count >= 5: break
-                score, rsi_val, vol = score_instrument(inst["figi"], token)
-                if score < 60: continue
+                score, signal, rsi_val, macd_hist = score_instrument(inst["figi"], token)
+                if score < 60 or signal != "BUY": continue
                 lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [inst["figi"]]}, token)
                 price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
                 lot = inst.get("lot", 1)
@@ -299,7 +361,7 @@ def handler(event: dict, context) -> dict:
                 add_referral_earning(uid, cost, token)
                 free_cash -= cost
                 open_count += 1
-                bought.append({"ticker": inst["ticker"], "score": score, "price": price, "lots": lots, "cost": round(cost,2)})
+                bought.append({"ticker": inst["ticker"], "score": score, "signal": signal, "rsi": rsi_val, "macd": macd_hist, "price": price, "lots": lots, "cost": round(cost,2)})
             return resp({"ok": True, "sold": check_data.get("sold", []), "bought": bought})
 
         return resp({"error": f"Неизвестный action: {action}"}, 400)

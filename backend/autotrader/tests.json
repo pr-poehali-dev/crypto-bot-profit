@@ -7,11 +7,11 @@
       "expectedStatus": 200
     },
     {
-      "name": "GET status",
+      "name": "GET status — нет сессии",
       "method": "GET",
       "path": "/?action=status",
-      "expectedStatus": 200,
-      "expectedBody": {"enabled": false},
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Не авторизован. Войдите в систему."},
       "bodyMatcher": "partial"
     }
   ]

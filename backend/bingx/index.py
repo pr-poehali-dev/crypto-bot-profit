@@ -54,7 +54,8 @@ def bx_pub(path: str, params: dict = None) -> dict:
     r = requests.get(BINGX_BASE + path, params=params or {}, timeout=10)
     return r.json()
 
-# ── Вычислить RSI по свечам ───────────────────────────────────────────────────
+# ── Индикаторы: RSI + EMA + MACD ─────────────────────────────────────────────
+
 def calc_rsi(closes: list, period=14) -> float:
     if len(closes) < period + 1: return 50.0
     gains, losses = [], []
@@ -65,6 +66,65 @@ def calc_rsi(closes: list, period=14) -> float:
     al = sum(losses[-period:]) / period
     if al == 0: return 100.0
     return round(100 - 100 / (1 + ag / al), 2)
+
+def calc_ema(prices: list, n: int) -> float:
+    if not prices: return 0.0
+    if len(prices) < n: return prices[-1]
+    k = 2 / (n + 1); e = prices[0]
+    for p in prices[1:]: e = p * k + e * (1 - k)
+    return e
+
+def calc_macd(prices: list, fast=12, slow=26, signal=9):
+    """Возвращает (macd_line, signal_line, histogram)."""
+    if len(prices) < slow + signal: return 0.0, 0.0, 0.0
+    ema_fast  = [calc_ema(prices[:i+1], fast) for i in range(len(prices))]
+    ema_slow  = [calc_ema(prices[:i+1], slow) for i in range(len(prices))]
+    macd_line = [f - s for f, s in zip(ema_fast, ema_slow)]
+    sig_line  = calc_ema(macd_line[-signal*2:], signal)
+    histogram = macd_line[-1] - sig_line
+    return round(macd_line[-1], 8), round(sig_line, 8), round(histogram, 8)
+
+def combo_signal_bx(closes: list):
+    """
+    Комбо RSI + EMA + MACD для BingX (крипто, 1m свечи).
+    BUY:  RSI<40, EMA9>EMA21, MACD-гистограмма растёт — нужно 3 из 4 условий.
+    SELL: RSI>60, EMA9<EMA21, MACD-гистограмма падает — нужно 3 из 4 условий.
+    Возвращает (signal, rsi, macd_hist, ema_diff)
+    """
+    if len(closes) < 40: return "HOLD", 50.0, 0.0, 0.0
+
+    rsi_val  = calc_rsi(closes)
+    ema9     = calc_ema(closes, 9);  ema9_p  = calc_ema(closes[:-1], 9)
+    ema21    = calc_ema(closes, 21); ema21_p = calc_ema(closes[:-1], 21)
+    _, _, hist   = calc_macd(closes)
+    _, _, hist_p = calc_macd(closes[:-1])
+
+    ema_bull       = ema9 > ema21
+    ema_cross_up   = ema9 > ema21 and ema9_p <= ema21_p
+    ema_cross_down = ema9 < ema21 and ema9_p >= ema21_p
+    macd_grow      = hist > hist_p
+    macd_fall      = hist < hist_p
+
+    buy_score = sum([
+        rsi_val < 40,
+        rsi_val < 35,
+        ema_bull or ema_cross_up,
+        macd_grow,
+        hist > 0,
+    ])
+    sell_score = sum([
+        rsi_val > 60,
+        rsi_val > 65,
+        (not ema_bull) or ema_cross_down,
+        macd_fall,
+        hist < 0,
+    ])
+
+    if buy_score >= 3:   sig = "BUY"
+    elif sell_score >= 3: sig = "SELL"
+    else:                sig = "HOLD"
+
+    return sig, round(rsi_val, 2), round(hist, 8), round(ema9 - ema21, 6)
 
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
@@ -240,14 +300,21 @@ def handler(event: dict, context) -> dict:
         for t in candidates:
             if open_count >= 5 or usdt_bal < amount * 0.9: break
             sym = t["symbol"]
-            # Получаем 1m свечи
-            klines_r = bx_pub("/openApi/spot/v1/market/kline", {"symbol": sym, "interval": "1m", "limit": 30})
+            # Получаем свечи 1m с запасом для MACD (slow=26 + signal=9 + запас = 50)
+            klines_r = bx_pub("/openApi/spot/v1/market/kline", {"symbol": sym, "interval": "1m", "limit": 60})
             klines = klines_r.get("data", [])
-            if len(klines) < 16: continue
+            if len(klines) < 40: continue
             closes = [float(k[4]) for k in klines]
-            rsi = calc_rsi(closes)
-            vol_ratio = float(klines[-1][5]) / (sum(float(k[5]) for k in klines[-10:-1]) / 9 + 0.0001)
-            if rsi < 35 and vol_ratio > 1.3:
+            volumes = [float(k[5]) for k in klines]
+
+            signal, rsi_val, macd_hist, ema_diff = combo_signal_bx(closes)
+
+            # Дополнительный фильтр: объём последних 3 свечей > среднего
+            avg_vol   = sum(volumes[-15:-3]) / 12 if len(volumes) >= 15 else 1
+            last_vol  = sum(volumes[-3:]) / 3
+            vol_ratio = last_vol / (avg_vol + 1e-9)
+
+            if signal == "BUY" and vol_ratio > 1.1:
                 price = closes[-1]
                 qty = round(amount / price, 6)
                 order = bx("POST", "/openApi/spot/v1/trade/order", api_key, secret, {
@@ -255,13 +322,18 @@ def handler(event: dict, context) -> dict:
                 })
                 if order.get("code", -1) == 0:
                     d = order.get("data", {})
-                    exec_qty = float(d.get("executedQty", qty))
+                    exec_qty   = float(d.get("executedQty", qty))
                     exec_price = float(d.get("price", price)) or price
                     db(f"INSERT INTO {SCHEMA}.bingx_spot_trades (user_id, symbol, side, quantity, price, amount_usdt, order_id, target_pct, stop_pct) VALUES (%s,%s,'BUY',%s,%s,%s,%s,%s,%s)",
                        (uid, sym, exec_qty, exec_price, amount, d.get("orderId",""), target_pct, stop_pct))
                     usdt_bal -= amount
                     open_count += 1
-                    bought.append({"symbol": sym, "rsi": rsi, "price": exec_price, "qty": exec_qty})
+                    bought.append({
+                        "symbol": sym, "rsi": rsi_val, "macd": macd_hist,
+                        "ema_diff": ema_diff, "vol_ratio": round(vol_ratio, 2),
+                        "price": exec_price, "qty": exec_qty,
+                        "reason": f"RSI {rsi_val:.1f} + EMA + MACD",
+                    })
 
         return resp({"ok": True, "sold": sold, "bought": bought, "open_count": open_count})
 

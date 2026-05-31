@@ -48,30 +48,74 @@ def db_set(key, value):
     conn.commit()
     cur.close(); conn.close()
 
-def rsi_signal(prices, period=14):
-    if len(prices) < period + 1: return "HOLD", 50
-    gains = [max(prices[i]-prices[i-1], 0) for i in range(1, len(prices))]
+def calc_rsi(prices, period=14):
+    if len(prices) < period + 1: return 50.0
+    gains  = [max(prices[i]-prices[i-1], 0) for i in range(1, len(prices))]
     losses = [max(prices[i-1]-prices[i], 0) for i in range(1, len(prices))]
-    ag = sum(gains[-period:]) / period
+    ag = sum(gains[-period:])  / period
     al = sum(losses[-period:]) / period
-    if al == 0: return "HOLD", 100
-    rsi = round(100 - 100 / (1 + ag / al), 1)
-    if rsi < 30: return "BUY", rsi
-    if rsi > 70: return "SELL", rsi
-    return "HOLD", rsi
+    if al == 0: return 100.0
+    return round(100 - 100 / (1 + ag / al), 2)
 
-def ema(prices, n):
+def calc_ema(prices, n):
+    if len(prices) < n: return prices[-1] if prices else 0.0
     k = 2 / (n + 1); e = prices[0]
     for p in prices[1:]: e = p * k + e * (1 - k)
     return e
 
-def ema_signal(prices):
-    if len(prices) < 22: return "HOLD"
-    f, s = ema(prices[-9:], 9), ema(prices[-21:], 21)
-    fp, sp = ema(prices[-10:-1], 9), ema(prices[-22:-1], 21)
-    if f > s and fp <= sp: return "BUY"
-    if f < s and fp >= sp: return "SELL"
-    return "HOLD"
+def calc_macd(prices, fast=12, slow=26, signal=9):
+    if len(prices) < slow + signal: return 0.0, 0.0, 0.0
+    ema_fast = [calc_ema(prices[:i+1], fast) for i in range(len(prices))]
+    ema_slow = [calc_ema(prices[:i+1], slow) for i in range(len(prices))]
+    macd_line = [f - s for f, s in zip(ema_fast, ema_slow)]
+    sig_line  = calc_ema(macd_line[-signal*2:], signal)
+    histogram = macd_line[-1] - sig_line
+    return round(macd_line[-1], 6), round(sig_line, 6), round(histogram, 6)
+
+def combo_signal(prices):
+    """
+    Комбо RSI + EMA + MACD.
+    BUY:  RSI<40, EMA9>EMA21 (или пересечение вверх), MACD-гистограмма растёт — минимум 3 из 4 условий.
+    SELL: RSI>60, EMA9<EMA21 (или пересечение вниз), MACD-гистограмма падает — минимум 3 из 4 условий.
+    """
+    if len(prices) < 35: return "HOLD", 50.0, 0.0
+    rsi_val  = calc_rsi(prices)
+    ema9     = calc_ema(prices, 9);  ema9_p  = calc_ema(prices[:-1], 9)
+    ema21    = calc_ema(prices, 21); ema21_p = calc_ema(prices[:-1], 21)
+    _, _, hist   = calc_macd(prices)
+    _, _, hist_p = calc_macd(prices[:-1])
+
+    ema_bull       = ema9 > ema21
+    ema_cross_up   = ema9 > ema21 and ema9_p <= ema21_p
+    ema_cross_down = ema9 < ema21 and ema9_p >= ema21_p
+    macd_grow      = hist > hist_p
+    macd_fall      = hist < hist_p
+
+    buy_score = sum([
+        rsi_val < 40,
+        rsi_val < 35,
+        ema_bull or ema_cross_up,
+        macd_grow,
+        hist > 0,
+    ])
+    sell_score = sum([
+        rsi_val > 60,
+        rsi_val > 65,
+        (not ema_bull) or ema_cross_down,
+        macd_fall,
+        hist < 0,
+    ])
+
+    if buy_score >= 3:    return "BUY",  rsi_val, hist
+    if sell_score >= 3:   return "SELL", rsi_val, hist
+    return "HOLD", rsi_val, hist
+
+# Обратная совместимость — используется в нескольких местах
+def rsi_signal(prices, period=14):
+    rsi = calc_rsi(prices, period)
+    if rsi < 30: return "BUY", rsi
+    if rsi > 70: return "SELL", rsi
+    return "HOLD", rsi
 
 def get_prices(figi):
     now = datetime.now(timezone.utc)
@@ -277,58 +321,47 @@ def handler(event: dict, context) -> dict:
                 if not pos["in_profit"]: continue  # ПРОДАЁМ ТОЛЬКО В ПЛЮС
                 if pos["pnl_pct"] < 0.5: continue  # Минимум +0.5% прибыли
 
-                # Проверяем сигнал на продажу
                 prices = get_prices(figi)
-                if len(prices) < 15: continue
-                sig_rsi, rsi_val = rsi_signal(prices)
-                sig_ema = ema_signal(prices)
-                signal = sig_rsi if sig_rsi != "HOLD" else sig_ema
+                if len(prices) < 35: continue
+                signal, rsi_val, macd_hist = combo_signal(prices)
 
-                if signal != "SELL": continue  # Продаём только если есть сигнал
+                if signal != "SELL": continue  # Продаём только если комбо-сигнал SELL
 
-                # Найти тикер
                 ticker = next((i["ticker"] for i in watchlist if i["figi"] == figi), figi)
-                lot = next((i["lot"] for i in watchlist if i["figi"] == figi), 1)
+                lot    = next((i["lot"]    for i in watchlist if i["figi"] == figi), 1)
                 lots_to_sell = max(1, int(pos["qty"] / lot))
 
                 order = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
-                    "accountId": account_id,
-                    "figi": figi,
+                    "accountId": account_id, "figi": figi,
                     "direction": "ORDER_DIRECTION_SELL",
-                    "quantity": lots_to_sell,
-                    "orderType": "ORDER_TYPE_MARKET",
+                    "quantity": lots_to_sell, "orderType": "ORDER_TYPE_MARKET",
                 })
                 profit_rub = round((pos["current_price"] - pos["avg_price"]) * pos["qty"], 2)
                 results.append({
-                    "ticker": ticker,
-                    "signal": "SELL",
-                    "rsi": rsi_val,
-                    "lots": lots_to_sell,
-                    "price": pos["current_price"],
-                    "avg_price": pos["avg_price"],
-                    "pnl_pct": pos["pnl_pct"],
+                    "ticker": ticker, "signal": "SELL",
+                    "rsi": rsi_val, "macd": macd_hist,
+                    "lots": lots_to_sell, "price": pos["current_price"],
+                    "avg_price": pos["avg_price"], "pnl_pct": pos["pnl_pct"],
                     "profit_rub": profit_rub,
-                    "reason": f"✅ Прибыль +{pos['pnl_pct']}%",
+                    "reason": f"✅ RSI+EMA+MACD SELL · прибыль +{pos['pnl_pct']}%",
                     "order_id": order.get("orderId", ""),
                     "status": order.get("executionReportStatus", ""),
                 })
 
-            # ── Шаг 2: ПОКУПКА по сигналам ──────────────────────────────
+            # ── Шаг 2: ПОКУПКА по комбо-сигналу ─────────────────────────
             import random
-            sample = random.sample(watchlist, min(30, len(watchlist)))  # 30 случайных за цикл
+            sample = random.sample(watchlist, min(30, len(watchlist)))
 
             buy_count = 0
             for inst in sample:
-                if free_cash < order_amt * 0.5: break  # Кончились деньги
-                if buy_count >= 5: break  # Не более 5 покупок за цикл
-                if inst["figi"] in positions: continue  # Уже держим
+                if free_cash < order_amt * 0.5: break
+                if buy_count >= 5: break
+                if inst["figi"] in positions: continue
 
                 prices = get_prices(inst["figi"])
-                if len(prices) < 15: continue
+                if len(prices) < 35: continue
 
-                sig_rsi, rsi_val = rsi_signal(prices)
-                sig_ema = ema_signal(prices)
-                signal = sig_rsi if sig_rsi != "HOLD" else sig_ema
+                signal, rsi_val, macd_hist = combo_signal(prices)
 
                 if signal != "BUY": continue
 
@@ -358,9 +391,11 @@ def handler(event: dict, context) -> dict:
                     "ticker": inst["ticker"],
                     "signal": "BUY",
                     "rsi": rsi_val,
+                    "macd": macd_hist,
                     "lots": lots,
                     "price": last_price,
                     "total": round(cost, 2),
+                    "reason": f"RSI {rsi_val:.1f} + EMA + MACD",
                     "order_id": order.get("orderId", ""),
                     "status": order.get("executionReportStatus", ""),
                 })
