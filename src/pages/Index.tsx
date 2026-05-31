@@ -898,7 +898,7 @@ interface AutoBotStatusLight { enabled: boolean; mode: string; fixed_amount: num
 
 /* ═══ Портфель — реальные позиции ═══ */
 function TBankPortfolioTab({ positions, loading, onRefresh }: {
-  positions: { figi: string; isin?: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
+  positions: { figi: string; ticker?: string; name?: string; isin?: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
   loading: boolean;
   onRefresh: () => void;
 }) {
@@ -939,13 +939,14 @@ function TBankPortfolioTab({ positions, loading, onRefresh }: {
         <div key={p.figi} className="cyber-card rounded-none p-4 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] flex items-center justify-center font-orbitron text-[9px] font-bold text-[var(--cyber-cyan)] rounded-none">
-              {p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "FUT" : "АКЦ"}
+              {p.ticker ? p.ticker.slice(0, 4) : p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "FUT" : "АКЦ"}
             </div>
             <div>
               <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">
-                {p.isin && p.isin !== p.figi ? p.isin : p.figi.slice(-8)}
+                {p.ticker || p.figi.slice(-8)}
               </div>
               <div className="section-label">
+                {p.name && p.name !== p.ticker ? `${p.name} · ` : ""}
                 {p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "Фьючерс" : "Акция"}
                 {" · "}{p.quantity} шт.
                 {p.avg_price > 0 && <> · ср. {p.avg_price.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {p.currency === "RUB" ? "₽" : "$"}</>}

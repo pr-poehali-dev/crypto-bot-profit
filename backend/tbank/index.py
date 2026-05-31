@@ -41,6 +41,30 @@ def money(m):
     nano = float(m.get("nano", 0))
     return units + nano / 1_000_000_000
 
+# Кэш тикеров FIGI→{ticker, name} на время жизни функции
+_figi_cache: dict = {}
+
+def resolve_figi(figi: str) -> dict:
+    """Возвращает {'ticker': ..., 'name': ...} по FIGI через GetInstrumentBy."""
+    if not figi:
+        return {"ticker": "—", "name": "—"}
+    if figi in _figi_cache:
+        return _figi_cache[figi]
+    try:
+        r = tbank_post("tinkoff.public.invest.api.contract.v1.InstrumentsService/GetInstrumentBy", {
+            "idType": "INSTRUMENT_ID_TYPE_FIGI",
+            "id": figi,
+        })
+        inst = r.get("instrument", {})
+        result = {
+            "ticker": inst.get("ticker") or figi[-6:],
+            "name":   inst.get("name")   or figi[-6:],
+        }
+    except Exception:
+        result = {"ticker": figi[-6:], "name": figi[-6:]}
+    _figi_cache[figi] = result
+    return result
+
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
@@ -103,23 +127,28 @@ def handler(event: dict, context) -> dict:
             invested = total_shares + total_bonds + total_etf + total_futures
             total = invested + total_currencies
 
-            # Позиции
+            # Позиции — резолвим FIGI → тикер параллельно
+            raw_positions = portfolio.get("positions", [])
+            figi_list = [p.get("figi", "") for p in raw_positions if p.get("figi")]
+            # Резолвим все FIGI за один проход (кэш ускоряет повторные вызовы)
+            for figi in figi_list:
+                resolve_figi(figi)
+
             positions = []
-            for p in portfolio.get("positions", []):
+            for p in raw_positions:
                 qty        = money(p.get("quantity"))
                 cur_price  = money(p.get("currentPrice"))
-                # averagePositionPrice — рублёвая цена (не пункты!)
                 avg_price  = money(p.get("averagePositionPrice")) or money(p.get("averagePositionPricePt"))
                 pnl        = money(p.get("expectedYield"))
-                isin       = p.get("isin") or p.get("figi", "")
-                # pnl_pct = pnl / (avg_price * qty) * 100
+                figi       = p.get("figi", "")
+                inst_info  = resolve_figi(figi)
                 cost_basis = avg_price * qty
-                pnl_pct    = round(pnl / cost_basis * 100, 2) if cost_basis and cost_basis > 0 else 0
+                pnl_pct    = round(pnl / cost_basis * 100, 2) if cost_basis > 0 else 0
                 positions.append({
-                    "figi":            p.get("figi"),
-                    "isin":            isin,
+                    "figi":            figi,
+                    "ticker":          inst_info["ticker"],
+                    "name":            inst_info["name"],
                     "instrument_type": p.get("instrumentType", "share"),
-                    "name":            isin,
                     "quantity":        qty,
                     "current_price":   cur_price,
                     "avg_price":       avg_price,
