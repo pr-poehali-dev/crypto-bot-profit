@@ -907,6 +907,48 @@ function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
   const [selling, setSelling] = useState(false);
   const [sellMsg, setSellMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
+  // Портфельный скальпер
+  const [psEnabled, setPsEnabled]     = useState(false);
+  const [psTarget, setPsTarget]       = useState(2.0);
+  const [psStop, setPsStop]           = useState(3.0);
+  const [psSaving, setPsSaving]       = useState(false);
+  const [psRunning, setPsRunning]     = useState(false);
+  const [psMsg, setPsMsg]             = useState<{ text: string; ok: boolean } | null>(null);
+  const [psExpanded, setPsExpanded]   = useState(false);
+
+  useEffect(() => {
+    authFetch(TBANK_URL, { method: "POST", body: JSON.stringify({ action: "portfolio_scalp_status" }) })
+      .then(r => r.json())
+      .then(d => { if (!d.error) { setPsEnabled(d.enabled); setPsTarget(d.target_pct); setPsStop(d.stop_pct); } })
+      .catch(() => {});
+  }, []);
+
+  const savePsSettings = async (enabled: boolean) => {
+    setPsSaving(true);
+    const r = await authFetch(TBANK_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "portfolio_scalp_save", enabled, target_pct: psTarget, stop_pct: psStop }),
+    }).then(r => r.json());
+    setPsSaving(false);
+    if (r.ok) { setPsEnabled(r.enabled); setPsMsg({ text: r.enabled ? `✓ Авто-продажа активна · тейк +${r.target_pct}% · стоп -${r.stop_pct}%` : "Авто-продажа выключена", ok: r.enabled }); }
+    else setPsMsg({ text: r.error || "Ошибка", ok: false });
+    setTimeout(() => setPsMsg(null), 4000);
+  };
+
+  const runPsCycle = async () => {
+    setPsRunning(true); setPsMsg(null);
+    const r = await authFetch(TBANK_URL, {
+      method: "POST", body: JSON.stringify({ action: "portfolio_scalp_cycle" }),
+    }).then(r => r.json());
+    setPsRunning(false);
+    if (r.ok) {
+      const n = r.sold?.length || 0;
+      setPsMsg({ text: n > 0 ? `⚡ Продано ${n} поз.: ${r.sold.map((s: {ticker:string;reason:string}) => `${s.ticker} (${s.reason})`).join(", ")}` : `Проверено ${r.checked || 0} поз. — условий нет`, ok: n > 0 });
+      if (n > 0) setTimeout(onRefresh, 2000);
+    } else setPsMsg({ text: r.error || "Ошибка", ok: false });
+    setTimeout(() => setPsMsg(null), 6000);
+  };
+
   const real = positions.filter(p => p.instrument_type !== "currency" && p.quantity > 0);
 
   const openSell = (figi: string) => {
@@ -972,6 +1014,104 @@ function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
           </div>
           <div className="section-label mt-0.5">В плюсе</div>
         </div>
+      </div>
+
+      {/* ── Портфельный скальпер ── */}
+      <div className={`rounded-none border transition-all ${psEnabled ? "border-[rgba(0,255,136,0.35)] bg-[rgba(0,255,136,0.03)]" : "border-[var(--cyber-border)]"}`}>
+        {/* Заголовок — всегда виден */}
+        <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => setPsExpanded(e => !e)}>
+          <div className="flex items-center gap-2">
+            <Icon name="Zap" size={13} className={psEnabled ? "neon-text" : "text-[var(--cyber-text-dim)]"} />
+            <span className="font-mono text-xs font-semibold text-[var(--cyber-text)]">АВТО-ПРОДАЖА ПО %</span>
+            {psEnabled && (
+              <span className="font-mono text-[10px] text-[var(--cyber-green)] border border-[rgba(0,255,136,0.3)] px-1.5 py-0.5">
+                +{psTarget}% / -{psStop}%
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Тоггл */}
+            <button
+              onClick={e => { e.stopPropagation(); savePsSettings(!psEnabled); }}
+              disabled={psSaving}
+              className={`relative w-10 h-5 rounded-full transition-all flex-shrink-0 disabled:opacity-50 ${psEnabled ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)]"}`}>
+              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${psEnabled ? "left-5" : "left-0.5"}`} />
+            </button>
+            <Icon name={psExpanded ? "ChevronUp" : "ChevronDown"} size={13} className="text-[var(--cyber-text-dim)]" />
+          </div>
+        </div>
+
+        {/* Развёрнутая панель */}
+        {psExpanded && (
+          <div className="border-t border-[var(--cyber-border)] p-3 space-y-3">
+            <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+              Бот автоматически продаёт позиции из портфеля когда достигается <span className="text-[var(--cyber-green)]">тейк-профит</span> или <span className="text-[var(--cyber-red)]">стоп-лосс</span>. Работает в планировщике 24/7.
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="section-label mb-1.5 flex items-center gap-1">
+                  <Icon name="TrendingUp" size={10} className="profit" /> ТЕЙК-ПРОФИТ %
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" step="0.5" min="0.5" max="50" value={psTarget}
+                    onChange={e => setPsTarget(parseFloat(e.target.value) || 2)}
+                    className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]"
+                  />
+                  <span className="font-mono text-sm text-[var(--cyber-text-dim)]">%</span>
+                </div>
+                <div className="flex gap-1 mt-1">
+                  {[1, 2, 3, 5].map(v => (
+                    <button key={v} onClick={() => setPsTarget(v)}
+                      className={`flex-1 py-0.5 font-mono text-[10px] border rounded-none transition-all ${psTarget === v ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                      {v}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="section-label mb-1.5 flex items-center gap-1">
+                  <Icon name="TrendingDown" size={10} className="loss" /> СТОП-ЛОСС %
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" step="0.5" min="0.5" max="50" value={psStop}
+                    onChange={e => setPsStop(parseFloat(e.target.value) || 3)}
+                    className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]"
+                  />
+                  <span className="font-mono text-sm text-[var(--cyber-text-dim)]">%</span>
+                </div>
+                <div className="flex gap-1 mt-1">
+                  {[1, 2, 3, 5].map(v => (
+                    <button key={v} onClick={() => setPsStop(v)}
+                      className={`flex-1 py-0.5 font-mono text-[10px] border rounded-none transition-all ${psStop === v ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                      {v}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {psMsg && (
+              <div className={`p-2 border font-mono text-xs rounded-none ${psMsg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                {psMsg.text}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={() => savePsSettings(psEnabled)} disabled={psSaving}
+                className="flex-1 py-2 font-orbitron text-[10px] tracking-widest border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40">
+                {psSaving ? "СОХРАНЯЮ..." : "СОХРАНИТЬ"}
+              </button>
+              <button onClick={runPsCycle} disabled={psRunning}
+                className="flex-1 py-2 font-orbitron text-[10px] tracking-widest border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
+                {psRunning ? <Spinner /> : <Icon name="Play" size={11} />}
+                {psRunning ? "ПРОВЕРЯЮ..." : "ПРОВЕРИТЬ СЕЙЧАС"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Глобальное сообщение */}

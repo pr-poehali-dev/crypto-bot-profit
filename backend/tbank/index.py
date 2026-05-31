@@ -364,6 +364,123 @@ def handler(event: dict, context) -> dict:
             })
             return resp({"success": True, "time": data.get("time")})
 
+        # ── Сохранить настройки портфельного скальпера ────────────────────────
+        if action == "portfolio_scalp_save":
+            conn = psycopg2.connect(DB_URL)
+            cur  = conn.cursor()
+            cur.execute(f"SELECT id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
+            row  = cur.fetchone()
+            if not row: cur.close(); conn.close(); return resp({"error": "Не авторизован"}, 401)
+            cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s", (session_id,))
+            uid_row = cur.fetchone()
+            uid = uid_row[0] if uid_row else None
+            if not uid: cur.close(); conn.close(); return resp({"error": "Пользователь не найден"}, 404)
+            enabled    = bool(body.get("enabled", False))
+            target_pct = float(body.get("target_pct", 2.0))
+            stop_pct   = float(body.get("stop_pct", 3.0))
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.portfolio_scalp_settings (user_id, enabled, target_pct, stop_pct, updated_at) "
+                f"VALUES (%s,%s,%s,%s,NOW()) ON CONFLICT (user_id) DO UPDATE "
+                f"SET enabled=%s, target_pct=%s, stop_pct=%s, updated_at=NOW()",
+                (uid, enabled, target_pct, stop_pct, enabled, target_pct, stop_pct)
+            )
+            conn.commit(); cur.close(); conn.close()
+            return resp({"ok": True, "enabled": enabled, "target_pct": target_pct, "stop_pct": stop_pct})
+
+        # ── Получить настройки портфельного скальпера ────────────────────────
+        if action == "portfolio_scalp_status":
+            conn = psycopg2.connect(DB_URL)
+            cur  = conn.cursor()
+            cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
+            row  = cur.fetchone()
+            if not row: cur.close(); conn.close(); return resp({"error": "Не авторизован"}, 401)
+            uid = row[0]
+            cur.execute(f"SELECT enabled, target_pct, stop_pct FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
+            s = cur.fetchone()
+            cur.close(); conn.close()
+            if not s:
+                return resp({"enabled": False, "target_pct": 2.0, "stop_pct": 3.0})
+            return resp({"enabled": bool(s[0]), "target_pct": float(s[1]), "stop_pct": float(s[2])})
+
+        # ── Цикл авто-продажи по портфелю (вызывается keepalive) ─────────────
+        if action == "portfolio_scalp_cycle":
+            conn = psycopg2.connect(DB_URL)
+            cur  = conn.cursor()
+            cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
+            row  = cur.fetchone()
+            if not row: cur.close(); conn.close(); return resp({"error": "Не авторизован"}, 401)
+            uid = row[0]
+            cur.execute(f"SELECT enabled, target_pct, stop_pct FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
+            s = cur.fetchone()
+            cur.close(); conn.close()
+            if not s or not s[0]:
+                return resp({"ok": True, "skipped": "авто-продажа выключена", "sold": []})
+
+            target_pct = float(s[1])
+            stop_pct   = float(s[2])
+
+            # Берём токен пользователя
+            conn2 = psycopg2.connect(DB_URL)
+            cur2  = conn2.cursor()
+            cur2.execute(f"SELECT tbank_token FROM {SCHEMA}.users WHERE id=%s", (uid,))
+            u = cur2.fetchone(); cur2.close(); conn2.close()
+            user_token = u[0] if u else ""
+            if not user_token:
+                return resp({"error": "Токен Т-Банк не найден"}, 400)
+
+            # Получаем первый счёт
+            acc_data   = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            accounts   = acc_data.get("accounts", [])
+            if not accounts:
+                return resp({"error": "Счета не найдены"}, 404)
+            account_id = accounts[0].get("id", "")
+
+            # Портфель
+            portfolio  = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {
+                "accountId": account_id, "currency": "RUB"
+            })
+
+            sold = []
+            for p in portfolio.get("positions", []):
+                inst_type = p.get("instrumentType", "")
+                if inst_type == "currency": continue
+                qty       = money(p.get("quantity"))
+                if qty <= 0: continue
+                avg_price = money(p.get("averagePositionPrice")) or money(p.get("averagePositionPricePt"))
+                cur_price = money(p.get("currentPrice"))
+                pnl       = money(p.get("expectedYield"))
+                figi      = p.get("figi", "")
+                cost      = avg_price * qty
+                pnl_pct   = round(pnl / cost * 100, 2) if cost > 0 else 0
+                inst_info = resolve_figi(figi)
+
+                reason = None
+                if pnl_pct >= target_pct:
+                    reason = f"ТЕЙК +{pnl_pct:.2f}% ≥ +{target_pct}%"
+                elif pnl_pct <= -stop_pct:
+                    reason = f"СТОП {pnl_pct:.2f}% ≤ -{stop_pct}%"
+
+                if reason:
+                    lots = max(1, int(qty))
+                    order = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
+                        "accountId":  account_id,
+                        "figi":       figi,
+                        "direction":  "ORDER_DIRECTION_SELL",
+                        "quantity":   lots,
+                        "orderType":  "ORDER_TYPE_MARKET",
+                    })
+                    sold.append({
+                        "figi":     figi,
+                        "ticker":   inst_info["ticker"],
+                        "lots":     lots,
+                        "pnl_pct":  pnl_pct,
+                        "pnl_rub":  round(pnl, 2),
+                        "reason":   reason,
+                        "order_id": order.get("orderId", ""),
+                    })
+
+            return resp({"ok": True, "sold": sold, "checked": len(portfolio.get("positions", []))})
+
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 
     return resp({"error": "Метод не поддерживается"}, 405)

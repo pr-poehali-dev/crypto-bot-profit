@@ -13,6 +13,7 @@ SELF_URL  = os.environ.get("KEEPALIVE_SELF_URL", "")   # URL этой функц
 AUTOTRADER_URL = "https://functions.poehali.dev/f372165e-74bb-42e7-9a58-5830d08d29fb"
 SCALPER_URL    = "https://functions.poehali.dev/069c26ed-4e40-418f-a3f1-c49541d79bf9"
 BINGX_URL      = "https://functions.poehali.dev/fa611271-a7e0-4dfe-868f-3f1b55a81df7"
+TBANK_URL      = "https://functions.poehali.dev/fb80b07e-125f-40dc-8244-d902c6b0731a"
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -166,6 +167,31 @@ def run_trade_cycle(admin_id: int) -> dict:
             result["scalper_bingx"] = {"error": str(e)}
     else:
         result["skipped"].append("scalper_bingx: выключен")
+
+    # ── Портфельный скальпер Т-Банк (авто-продажа по %) ──────────────────────
+    try:
+        conn = psycopg2.connect(DB_URL)
+        cur  = conn.cursor()
+        cur.execute(f"SELECT enabled FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (admin_id,))
+        ps_row = cur.fetchone(); cur.close(); conn.close()
+        ps_on = bool(ps_row and ps_row[0])
+    except Exception:
+        ps_on = False
+
+    if ps_on and 7 <= msk_h < 23:
+        try:
+            r = requests.post(TBANK_URL, json={"action": "portfolio_scalp_cycle"},
+                              headers=auth, timeout=28)
+            d = r.json()
+            result["portfolio_scalp"] = {
+                "ok":   d.get("ok", False),
+                "sold": len(d.get("sold", [])),
+                "items": d.get("sold", []),
+            }
+        except Exception as e:
+            result["portfolio_scalp"] = {"error": str(e)}
+    else:
+        result["skipped"].append("portfolio_scalp: " + ("выключен" if not ps_on else "нерабочее время"))
 
     return result
 
