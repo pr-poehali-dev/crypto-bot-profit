@@ -7,19 +7,19 @@
       "expectedStatus": 200
     },
     {
-      "name": "GET accounts — нет токена",
+      "name": "GET accounts — нет сессии",
       "method": "GET",
       "path": "/?action=accounts",
-      "expectedStatus": 500,
-      "expectedBody": {"error": "string"},
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Не авторизован"},
       "bodyMatcher": "partial"
     },
     {
-      "name": "GET search",
+      "name": "GET balance — нет сессии",
       "method": "GET",
-      "path": "/?action=search&query=SBER&kind=share",
-      "expectedStatus": 500,
-      "expectedBody": {"error": "string"},
+      "path": "/?action=balance",
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Не авторизован"},
       "bodyMatcher": "partial"
     }
   ]

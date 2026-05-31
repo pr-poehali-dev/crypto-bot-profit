@@ -898,7 +898,7 @@ interface AutoBotStatusLight { enabled: boolean; mode: string; fixed_amount: num
 
 /* ═══ Портфель — реальные позиции ═══ */
 function TBankPortfolioTab({ positions, loading, onRefresh }: {
-  positions: { figi: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
+  positions: { figi: string; isin?: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
   loading: boolean;
   onRefresh: () => void;
 }) {
@@ -939,19 +939,25 @@ function TBankPortfolioTab({ positions, loading, onRefresh }: {
         <div key={p.figi} className="cyber-card rounded-none p-4 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] flex items-center justify-center font-orbitron text-[9px] font-bold text-[var(--cyber-cyan)] rounded-none">
-              {p.instrument_type === "etf" ? "ETF" : "АКЦ"}
+              {p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "FUT" : "АКЦ"}
             </div>
             <div>
-              <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">{p.figi.slice(-6)}</div>
-              <div className="section-label">{p.instrument_type === "etf" ? "ETF" : "Акция"} · {p.quantity} шт. · {p.current_price.toLocaleString("ru-RU")} ₽</div>
+              <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">
+                {p.isin && p.isin !== p.figi ? p.isin : p.figi.slice(-8)}
+              </div>
+              <div className="section-label">
+                {p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "Фьючерс" : "Акция"}
+                {" · "}{p.quantity} шт.
+                {p.avg_price > 0 && <> · ср. {p.avg_price.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {p.currency === "RUB" ? "₽" : "$"}</>}
+              </div>
             </div>
           </div>
           <div className="text-right">
             <div className={`font-mono text-sm font-semibold ${p.pnl >= 0 ? "profit" : "loss"}`}>
-              {p.pnl >= 0 ? "+" : ""}{p.pnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+              {p.pnl >= 0 ? "+" : ""}{p.pnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} {p.currency === "RUB" ? "₽" : "$"}
             </div>
-            <div className={`font-mono text-xs ${p.pnl_pct >= 0 ? "profit" : "loss"}`}>
-              {p.pnl_pct >= 0 ? "+" : ""}{p.pnl_pct.toFixed(2)}%
+            <div className={`font-mono text-xs font-semibold ${p.pnl_pct > 0 ? "profit" : p.pnl_pct < 0 ? "loss" : "text-[var(--cyber-text-dim)]"}`}>
+              {p.pnl_pct > 0 ? "+" : ""}{(typeof p.pnl_pct === "number" ? p.pnl_pct : parseFloat(String(p.pnl_pct)) || 0).toFixed(2)}%
             </div>
           </div>
         </div>

@@ -106,21 +106,26 @@ def handler(event: dict, context) -> dict:
             # Позиции
             positions = []
             for p in portfolio.get("positions", []):
-                qty = money(p.get("quantity"))
-                cur_price = money(p.get("currentPrice"))
-                avg_price = money(p.get("averagePositionPricePt") or p.get("averagePositionPrice"))
-                pnl = money(p.get("expectedYield"))
-                cur_val = money(p.get("currentNkd") or {}) + qty * cur_price
+                qty        = money(p.get("quantity"))
+                cur_price  = money(p.get("currentPrice"))
+                # averagePositionPrice — рублёвая цена (не пункты!)
+                avg_price  = money(p.get("averagePositionPrice")) or money(p.get("averagePositionPricePt"))
+                pnl        = money(p.get("expectedYield"))
+                isin       = p.get("isin") or p.get("figi", "")
+                # pnl_pct = pnl / (avg_price * qty) * 100
+                cost_basis = avg_price * qty
+                pnl_pct    = round(pnl / cost_basis * 100, 2) if cost_basis and cost_basis > 0 else 0
                 positions.append({
-                    "figi": p.get("figi"),
-                    "instrument_type": p.get("instrumentType"),
-                    "name": p.get("figi"),
-                    "quantity": qty,
-                    "current_price": cur_price,
-                    "avg_price": avg_price,
-                    "pnl": pnl,
-                    "pnl_pct": round(pnl / (avg_price * qty) * 100, 2) if avg_price and qty else 0,
-                    "currency": p.get("currentPrice", {}).get("currency", "RUB"),
+                    "figi":            p.get("figi"),
+                    "isin":            isin,
+                    "instrument_type": p.get("instrumentType", "share"),
+                    "name":            isin,
+                    "quantity":        qty,
+                    "current_price":   cur_price,
+                    "avg_price":       avg_price,
+                    "pnl":             pnl,
+                    "pnl_pct":         pnl_pct,
+                    "currency":        p.get("currentPrice", {}).get("currency", "RUB"),
                 })
 
             # История операций за 30 дней для подсчёта P&L
