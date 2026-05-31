@@ -291,16 +291,31 @@ def handler(event: dict, context) -> dict:
             })
             ops = []
             for o in data.get("operations", [])[:50]:
+                figi      = o.get("figi") or ""
+                inst_info = resolve_figi(figi) if figi else {"ticker": "—", "name": "—"}
+                # Форматируем время: ISO → МСК читаемый вид
+                date_raw  = o.get("date", "")
+                date_msk  = "—"
+                if date_raw:
+                    try:
+                        dt_utc = datetime.fromisoformat(date_raw.replace("Z", "+00:00"))
+                        dt_msk = dt_utc + timedelta(hours=3)
+                        date_msk = dt_msk.strftime("%d.%m.%Y %H:%M")
+                    except Exception:
+                        date_msk = date_raw[:16]
                 ops.append({
-                    "id": o.get("id"),
-                    "type": o.get("operationType"),
-                    "figi": o.get("figi"),
+                    "id":       o.get("id"),
+                    "type":     o.get("operationType"),
+                    "figi":     figi,
+                    "ticker":   inst_info["ticker"],
+                    "name":     inst_info["name"],
                     "quantity": o.get("quantity"),
-                    "price": money(o.get("price")),
-                    "payment": money(o.get("payment")),
+                    "price":    money(o.get("price")),
+                    "payment":  money(o.get("payment")),
                     "currency": o.get("payment", {}).get("currency", "RUB"),
-                    "date": o.get("date"),
-                    "status": o.get("state"),
+                    "date":     o.get("date"),
+                    "date_msk": date_msk,
+                    "status":   o.get("state"),
                 })
             return resp(ops)
 

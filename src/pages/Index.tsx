@@ -1268,8 +1268,13 @@ function SellPanel({ position, maxLots, selling, onSell }: {
 
 /* ═══ История сделок — реальные операции ═══ */
 function TBankOrdersTab({ accountId }: { accountId: string }) {
-  const [ops, setOps] = useState<{ id: string; type: string; figi: string; quantity: number; price: number; payment: number; currency: string; date: string }[]>([]);
+  const [ops, setOps] = useState<{
+    id: string; type: string; figi: string; ticker: string; name: string;
+    quantity: number; price: number; payment: number; currency: string;
+    date: string; date_msk: string;
+  }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "buy" | "sell">("all");
 
   useEffect(() => {
     if (!accountId) { setLoading(false); return; }
@@ -1280,78 +1285,106 @@ function TBankOrdersTab({ accountId }: { accountId: string }) {
       .finally(() => setLoading(false));
   }, [accountId]);
 
-  const typeLabel: Record<string, { label: string; color: string }> = {
-    "OPERATION_TYPE_BUY": { label: "ПОКУПКА", color: "profit" },
-    "OPERATION_TYPE_BUY_CARD": { label: "ПОКУПКА", color: "profit" },
-    "OPERATION_TYPE_SELL": { label: "ПРОДАЖА", color: "loss" },
-    "OPERATION_TYPE_BROKER_FEE": { label: "КОМИССИЯ", color: "text-[var(--cyber-text-dim)]" },
-    "OPERATION_TYPE_INPUT": { label: "ПОПОЛНЕНИЕ", color: "neon-text-cyan" },
+  const TYPE: Record<string, { label: string; short: string; color: string; icon: string }> = {
+    "OPERATION_TYPE_BUY":        { label: "ПОКУПКА",    short: "BUY",  color: "profit",                          icon: "TrendingUp" },
+    "OPERATION_TYPE_BUY_CARD":   { label: "ПОКУПКА",    short: "BUY",  color: "profit",                          icon: "TrendingUp" },
+    "OPERATION_TYPE_SELL":       { label: "ПРОДАЖА",    short: "SELL", color: "loss",                            icon: "TrendingDown" },
+    "OPERATION_TYPE_BROKER_FEE": { label: "КОМИССИЯ",   short: "FEE",  color: "text-[var(--cyber-text-dim)]",    icon: "Receipt" },
+    "OPERATION_TYPE_INPUT":      { label: "ПОПОЛНЕНИЕ", short: "IN",   color: "neon-text-cyan",                  icon: "ArrowDownLeft" },
   };
 
-  const trades = ops.filter(o => ["OPERATION_TYPE_BUY", "OPERATION_TYPE_BUY_CARD", "OPERATION_TYPE_SELL"].includes(o.type));
-  const totalPnl = ops.filter(o => o.type === "OPERATION_TYPE_SELL").reduce((a, o) => a + o.payment, 0);
-  const wins = ops.filter(o => o.type === "OPERATION_TYPE_SELL" && o.payment > 0).length;
-  const sells = ops.filter(o => o.type === "OPERATION_TYPE_SELL").length;
+  const isBuy  = (t: string) => ["OPERATION_TYPE_BUY", "OPERATION_TYPE_BUY_CARD"].includes(t);
+  const isSell = (t: string) => t === "OPERATION_TYPE_SELL";
 
-  if (loading) return <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none"><Spinner /><span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю историю...</span></div>;
+  const trades = ops.filter(o => isBuy(o.type) || isSell(o.type));
+  const shown  = filter === "buy"  ? trades.filter(o => isBuy(o.type))
+               : filter === "sell" ? trades.filter(o => isSell(o.type))
+               : trades;
+
+  const totalPnl = trades.filter(o => isSell(o.type)).reduce((a, o) => a + o.payment, 0);
+  const sells    = trades.filter(o => isSell(o.type)).length;
+  const wins     = trades.filter(o => isSell(o.type) && o.payment > 0).length;
+  const spent    = trades.filter(o => isBuy(o.type)).reduce((a, o) => a + Math.abs(o.payment), 0);
+
+  if (loading) return (
+    <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none">
+      <Spinner /><span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю историю и названия инструментов...</span>
+    </div>
+  );
 
   return (
     <div className="space-y-3 animate-fade-in-up">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="cyber-card-glow rounded-none p-3 text-center">
-          <div className="font-orbitron text-lg font-bold neon-text-cyan">{trades.length}</div>
-          <div className="section-label mt-0.5">Сделок (30 дней)</div>
-        </div>
-        <div className="cyber-card-glow rounded-none p-3 text-center">
-          <div className={`font-orbitron text-lg font-bold ${totalPnl >= 0 ? "neon-text" : "loss"}`}>
-            {totalPnl >= 0 ? "+" : ""}{totalPnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+      {/* Сводка */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        {[
+          { label: "Сделок за 30 дней", val: String(trades.length), color: "neon-text-cyan" },
+          { label: "P&L реализованный", val: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`, color: totalPnl >= 0 ? "neon-text" : "loss" },
+          { label: "Прибыльных продаж", val: `${sells > 0 ? Math.round(wins / sells * 100) : 0}%`, color: "neon-text" },
+          { label: "Вложено (покупки)", val: `${spent.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`, color: "text-[var(--cyber-yellow)]" },
+        ].map(s => (
+          <div key={s.label} className="cyber-card-glow rounded-none p-3 text-center">
+            <div className={`font-orbitron text-base font-bold ${s.color}`}>{s.val}</div>
+            <div className="section-label mt-0.5 text-[9px]">{s.label}</div>
           </div>
-          <div className="section-label mt-0.5">P&L реализованный</div>
-        </div>
-        <div className="cyber-card-glow rounded-none p-3 text-center">
-          <div className="font-orbitron text-lg font-bold neon-text">
-            {sells > 0 ? Math.round(wins / sells * 100) : 0}%
-          </div>
-          <div className="section-label mt-0.5">Прибыльных продаж</div>
-        </div>
+        ))}
       </div>
 
-      {trades.length === 0 ? (
+      {/* Фильтр */}
+      <div className="flex gap-1">
+        {([["all", "Все"], ["buy", "Покупки"], ["sell", "Продажи"]] as const).map(([val, lbl]) => (
+          <button key={val} onClick={() => setFilter(val)}
+            className={`px-3 py-1.5 font-mono text-xs border rounded-none transition-all ${filter === val ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+            {lbl}
+          </button>
+        ))}
+        <span className="ml-auto font-mono text-[10px] text-[var(--cyber-text-dim)] self-center">{shown.length} записей</span>
+      </div>
+
+      {shown.length === 0 ? (
         <div className="cyber-card rounded-none p-8 text-center">
           <div className="font-orbitron text-sm text-[var(--cyber-text-dim)]">НЕТ СДЕЛОК ЗА 30 ДНЕЙ</div>
         </div>
       ) : (
-        <div className="cyber-card rounded-none p-4">
-          <div className="section-label mb-3">ИСТОРИЯ ОПЕРАЦИЙ — 30 ДНЕЙ</div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[var(--cyber-border)]">
-                  {["Тип", "Инструмент", "Кол-во", "Цена", "Сумма", "Дата"].map(h => (
-                    <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {trades.map((o, i) => {
-                  const tl = typeLabel[o.type] || { label: o.type, color: "text-[var(--cyber-text-dim)]" };
-                  const dateStr = o.date ? new Date(o.date).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
-                  return (
-                    <tr key={o.id || i} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,212,255,0.03)]" style={{ animationDelay: `${i * 40}ms` }}>
-                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${tl.color}`}>{tl.label}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.figi?.slice(-8) || "—"}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{o.quantity || "—"}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text)] py-2 pr-4">{o.price > 0 ? `${o.price.toLocaleString("ru-RU")} ₽` : "—"}</td>
-                      <td className={`font-mono text-xs py-2 pr-4 font-semibold ${o.payment >= 0 ? "profit" : "loss"}`}>
-                        {o.payment >= 0 ? "+" : ""}{o.payment.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
-                      </td>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{dateStr}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-1.5">
+          {shown.map((o, i) => {
+            const tl     = TYPE[o.type] || { label: o.type, short: "?", color: "text-[var(--cyber-text-dim)]", icon: "Circle" };
+            const ticker = o.ticker && o.ticker !== "—" ? o.ticker : o.figi?.slice(-6) || "—";
+            const name   = o.name && o.name !== "—" && o.name !== ticker ? o.name : null;
+            const isSl   = isSell(o.type);
+            return (
+              <div key={o.id || i}
+                className="cyber-card rounded-none p-3 flex items-center gap-3 hover:border-[var(--cyber-border-bright)] transition-all animate-fade-in-up"
+                style={{ animationDelay: `${Math.min(i, 15) * 30}ms`, opacity: 0 }}>
+                {/* Иконка типа */}
+                <div className={`w-8 h-8 shrink-0 flex items-center justify-center border rounded-none ${isSl ? "border-[rgba(255,61,113,0.4)] bg-[rgba(255,61,113,0.07)]" : "border-[rgba(0,255,136,0.3)] bg-[rgba(0,255,136,0.05)]"}`}>
+                  <Icon name={tl.icon} size={13} className={tl.color} />
+                </div>
+
+                {/* Инструмент */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-semibold text-[var(--cyber-text)]">{ticker}</span>
+                    <span className={`font-mono text-[10px] font-bold px-1.5 py-0.5 border rounded-none ${tl.color} border-current opacity-70`}>
+                      {tl.short}
+                    </span>
+                  </div>
+                  <div className="section-label text-[10px] truncate">
+                    {name && <span className="mr-2">{name}</span>}
+                    {o.quantity > 0 && <span>{o.quantity} шт.</span>}
+                    {o.price > 0 && <span> · {o.price.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽/шт.</span>}
+                  </div>
+                </div>
+
+                {/* Сумма и время */}
+                <div className="text-right shrink-0">
+                  <div className={`font-mono text-sm font-bold ${o.payment >= 0 ? "profit" : "loss"}`}>
+                    {o.payment >= 0 ? "+" : ""}{o.payment.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+                  </div>
+                  <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{o.date_msk || "—"}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
