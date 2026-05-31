@@ -897,12 +897,47 @@ interface BotTrade { ticker: string; signal: string; lots?: number; price?: numb
 interface AutoBotStatusLight { enabled: boolean; mode: string; fixed_amount: number; last_run: string; last_trades: BotTrade[]; daily_pnl: number; }
 
 /* ═══ Портфель — реальные позиции ═══ */
-function TBankPortfolioTab({ positions, loading, onRefresh }: {
+function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
   positions: { figi: string; ticker?: string; name?: string; isin?: string; instrument_type: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string }[];
   loading: boolean;
   onRefresh: () => void;
+  accountId: string;
 }) {
+  const [sellFigi, setSellFigi] = useState<string | null>(null);
+  const [selling, setSelling] = useState(false);
+  const [sellMsg, setSellMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
   const real = positions.filter(p => p.instrument_type !== "currency" && p.quantity > 0);
+
+  const openSell = (figi: string) => {
+    setSellMsg(null);
+    setSellFigi(prev => prev === figi ? null : figi);
+  };
+
+  const doSell = async (p: typeof real[0], lots: number) => {
+    if (!lots || lots <= 0) return;
+    setSelling(true); setSellMsg(null);
+    const r = await authFetch(TBANK_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "place_order",
+        account_id: accountId,
+        figi: p.figi,
+        direction: "ORDER_DIRECTION_SELL",
+        lots,
+        order_type: "ORDER_TYPE_MARKET",
+      }),
+    }).then(r => r.json());
+    setSelling(false);
+    if (r.order_id || r.status) {
+      setSellMsg({ text: `✓ Продажа ${p.ticker || p.figi.slice(-6)} · ${lots} лот(ов) · ордер принят`, ok: true });
+      setSellFigi(null);
+      setTimeout(() => { setSellMsg(null); onRefresh(); }, 2500);
+    } else {
+      setSellMsg({ text: r.message || r.error || "Ошибка выставления ордера", ok: false });
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center gap-3 py-12 cyber-card rounded-none"><Spinner /><span className="font-mono text-xs text-[var(--cyber-text-dim)]">Загружаю портфель...</span></div>;
   if (real.length === 0) return (
     <div className="cyber-card rounded-none p-8 text-center animate-fade-in-up">
@@ -914,9 +949,12 @@ function TBankPortfolioTab({ positions, loading, onRefresh }: {
       </button>
     </div>
   );
+
   const totalPnl = real.reduce((a, p) => a + p.pnl, 0);
+
   return (
     <div className="space-y-3 animate-fade-in-up">
+      {/* Сводка */}
       <div className="grid grid-cols-3 gap-3">
         <div className="cyber-card-glow rounded-none p-3 text-center">
           <div className="font-orbitron text-lg font-bold neon-text-cyan">{real.length}</div>
@@ -935,37 +973,155 @@ function TBankPortfolioTab({ positions, loading, onRefresh }: {
           <div className="section-label mt-0.5">В плюсе</div>
         </div>
       </div>
-      {real.map((p, i) => (
-        <div key={p.figi} className="cyber-card rounded-none p-4 animate-fade-in-up flex items-center justify-between gap-3" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] flex items-center justify-center font-orbitron text-[9px] font-bold text-[var(--cyber-cyan)] rounded-none">
-              {p.ticker ? p.ticker.slice(0, 4) : p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "FUT" : "АКЦ"}
-            </div>
-            <div>
-              <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold">
-                {p.ticker || p.figi.slice(-8)}
-              </div>
-              <div className="section-label">
-                {p.name && p.name !== p.ticker ? `${p.name} · ` : ""}
-                {p.instrument_type === "etf" ? "ETF" : p.instrument_type === "futures" ? "Фьючерс" : "Акция"}
-                {" · "}{p.quantity} шт.
-                {p.avg_price > 0 && <> · ср. {p.avg_price.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} {p.currency === "RUB" ? "₽" : "$"}</>}
-              </div>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className={`font-mono text-sm font-semibold ${p.pnl >= 0 ? "profit" : "loss"}`}>
-              {p.pnl >= 0 ? "+" : ""}{p.pnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} {p.currency === "RUB" ? "₽" : "$"}
-            </div>
-            <div className={`font-mono text-xs font-semibold ${p.pnl_pct > 0 ? "profit" : p.pnl_pct < 0 ? "loss" : "text-[var(--cyber-text-dim)]"}`}>
-              {p.pnl_pct > 0 ? "+" : ""}{(typeof p.pnl_pct === "number" ? p.pnl_pct : parseFloat(String(p.pnl_pct)) || 0).toFixed(2)}%
-            </div>
-          </div>
+
+      {/* Глобальное сообщение */}
+      {sellMsg && (
+        <div className={`p-3 border font-mono text-xs rounded-none ${sellMsg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>
+          {sellMsg.text}
         </div>
-      ))}
+      )}
+
+      {/* Список позиций */}
+      {real.map((p, i) => {
+        const pct = typeof p.pnl_pct === "number" ? p.pnl_pct : parseFloat(String(p.pnl_pct)) || 0;
+        const isOpen = sellFigi === p.figi;
+        const maxLots = Math.floor(p.quantity);
+
+        return (
+          <div key={p.figi} className={`cyber-card rounded-none animate-fade-in-up transition-all ${isOpen ? "border-[rgba(255,61,113,0.4)]" : ""}`} style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
+            {/* Основная строка */}
+            <div className="p-4 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-9 h-9 shrink-0 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] flex items-center justify-center font-orbitron text-[9px] font-bold text-[var(--cyber-cyan)] rounded-none">
+                  {p.ticker ? p.ticker.slice(0, 4) : p.instrument_type === "etf" ? "ETF" : "АКЦ"}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-mono text-sm text-[var(--cyber-text)] font-semibold truncate">
+                    {p.ticker || p.figi.slice(-8)}
+                    {p.name && p.name !== p.ticker && <span className="text-[var(--cyber-text-dim)] font-normal ml-1.5 text-xs">{p.name}</span>}
+                  </div>
+                  <div className="section-label">
+                    {p.quantity} шт.
+                    {p.avg_price > 0 && <> · ср. {p.avg_price.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽</>}
+                    {p.current_price > 0 && <> · тек. {p.current_price.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ₽</>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                {/* P&L */}
+                <div className="text-right">
+                  <div className={`font-mono text-sm font-semibold ${p.pnl >= 0 ? "profit" : "loss"}`}>
+                    {p.pnl >= 0 ? "+" : ""}{p.pnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+                  </div>
+                  <div className={`font-mono text-xs font-bold ${pct > 0 ? "profit" : pct < 0 ? "loss" : "text-[var(--cyber-text-dim)]"}`}>
+                    {pct > 0 ? "+" : ""}{pct.toFixed(2)}%
+                  </div>
+                </div>
+
+                {/* Кнопка продажи */}
+                <button
+                  onClick={() => openSell(p.figi)}
+                  className={`px-3 py-1.5 font-orbitron text-[10px] border rounded-none transition-all shrink-0 ${isOpen ? "border-[var(--cyber-red)] text-[var(--cyber-red)] bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-red)] hover:text-[var(--cyber-red)]"}`}>
+                  {isOpen ? "✕ ОТМЕНА" : "ПРОДАТЬ"}
+                </button>
+              </div>
+            </div>
+
+            {/* Панель продажи — раскрывается */}
+            {isOpen && (
+              <SellPanel
+                position={p}
+                maxLots={maxLots}
+                selling={selling}
+                onSell={(lots) => doSell(p, lots)}
+              />
+            )}
+          </div>
+        );
+      })}
+
       <button onClick={onRefresh} className="w-full py-2 font-mono text-xs border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] hover:text-[var(--cyber-cyan)] rounded-none transition-all flex items-center justify-center gap-1.5">
         <Icon name="RefreshCw" size={11} /> Обновить портфель
       </button>
+    </div>
+  );
+}
+
+/* ═══ Панель продажи ═══ */
+function SellPanel({ position, maxLots, selling, onSell }: {
+  position: { ticker?: string; figi: string; quantity: number; current_price: number; avg_price: number; pnl: number; pnl_pct: number; currency: string };
+  maxLots: number;
+  selling: boolean;
+  onSell: (lots: number) => void;
+}) {
+  const [lots, setLots] = useState(maxLots);
+  const pct = typeof position.pnl_pct === "number" ? position.pnl_pct : parseFloat(String(position.pnl_pct)) || 0;
+  const sellValue = lots * position.current_price;
+  const avgCost   = lots * position.avg_price;
+  const estPnl    = avgCost > 0 ? sellValue - avgCost : position.pnl * (lots / position.quantity);
+
+  return (
+    <div className="border-t border-[rgba(255,61,113,0.25)] bg-[rgba(255,61,113,0.04)] px-4 pb-4 pt-3 space-y-3">
+      <div className="section-label flex items-center gap-1.5">
+        <Icon name="TrendingDown" size={11} className="text-[var(--cyber-red)]" />
+        ПРОДАТЬ {position.ticker || position.figi.slice(-6)} — РЫНОЧНЫЙ ОРДЕР
+      </div>
+
+      {/* Текущий % */}
+      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-none font-mono text-xs font-bold ${pct > 0 ? "border-[rgba(0,255,136,0.4)] profit bg-[rgba(0,255,136,0.06)]" : "border-[rgba(255,61,113,0.4)] loss bg-[rgba(255,61,113,0.06)]"}`}>
+        <Icon name={pct >= 0 ? "TrendingUp" : "TrendingDown"} size={11} />
+        Текущий результат: {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+        {" · "}{position.pnl >= 0 ? "+" : ""}{position.pnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+      </div>
+
+      {/* Слайдер количества */}
+      <div>
+        <div className="flex justify-between mb-1.5">
+          <span className="section-label">Количество лотов</span>
+          <span className="font-mono text-xs text-[var(--cyber-text)]">{lots} / {maxLots} лот.</span>
+        </div>
+        <input
+          type="range" min={1} max={maxLots} step={1} value={lots}
+          onChange={e => setLots(parseInt(e.target.value))}
+          className="w-full accent-[var(--cyber-red)] cursor-pointer"
+        />
+        <div className="flex justify-between mt-1">
+          <button onClick={() => setLots(Math.ceil(maxLots * 0.25))} className="font-mono text-[10px] text-[var(--cyber-text-dim)] hover:text-[var(--cyber-red)] transition-colors">25%</button>
+          <button onClick={() => setLots(Math.ceil(maxLots * 0.5))}  className="font-mono text-[10px] text-[var(--cyber-text-dim)] hover:text-[var(--cyber-red)] transition-colors">50%</button>
+          <button onClick={() => setLots(Math.ceil(maxLots * 0.75))} className="font-mono text-[10px] text-[var(--cyber-text-dim)] hover:text-[var(--cyber-red)] transition-colors">75%</button>
+          <button onClick={() => setLots(maxLots)}                    className="font-mono text-[10px] text-[var(--cyber-text-dim)] hover:text-[var(--cyber-red)] transition-colors">100%</button>
+        </div>
+      </div>
+
+      {/* Итог */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] p-2 rounded-none">
+          <div className="section-label text-[9px]">Получите ~</div>
+          <div className="font-mono text-sm font-bold text-[var(--cyber-text)] mt-0.5">
+            {sellValue > 0 ? sellValue.toLocaleString("ru-RU", { maximumFractionDigits: 0 }) + " ₽" : "—"}
+          </div>
+        </div>
+        <div className="bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] p-2 rounded-none">
+          <div className="section-label text-[9px]">Прибыль/убыток ~</div>
+          <div className={`font-mono text-sm font-bold mt-0.5 ${estPnl >= 0 ? "profit" : "loss"}`}>
+            {estPnl >= 0 ? "+" : ""}{estPnl.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽
+          </div>
+        </div>
+      </div>
+
+      {/* Кнопка продать */}
+      <button
+        onClick={() => onSell(lots)}
+        disabled={selling || lots <= 0}
+        className="w-full py-2.5 font-orbitron text-xs tracking-widest border border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.12)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+        {selling ? <Spinner /> : <Icon name="TrendingDown" size={13} />}
+        {selling ? "ВЫСТАВЛЯЮ ОРДЕР..." : `ПРОДАТЬ ${lots} ЛОТ · РЫНОЧНЫЙ ОРДЕР`}
+      </button>
+
+      <div className="text-[10px] font-mono text-[var(--cyber-text-dim)]">
+        Рыночный ордер — исполнится по лучшей доступной цене. Цены ориентировочные.
+      </div>
     </div>
   );
 }
@@ -1578,7 +1734,7 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
       {tab === "orders" && <TBankOrdersTab accountId={bal?.account_id || ""} />}
 
       {/* ═══ ПОРТФЕЛЬ ═══ */}
-      {tab === "portfolio" && <TBankPortfolioTab positions={bal?.positions || []} loading={balanceLoading} onRefresh={() => { setBalanceLoading(true); fetchBalance(); }} />}
+      {tab === "portfolio" && <TBankPortfolioTab positions={bal?.positions || []} loading={balanceLoading} accountId={bal?.account_id || ""} onRefresh={() => { setBalanceLoading(true); fetchBalance(); }} />}
 
     </div>
   );
