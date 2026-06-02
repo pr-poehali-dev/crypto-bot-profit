@@ -943,10 +943,16 @@ function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
     setPsRunning(false);
     if (r.ok) {
       const n = r.sold?.length || 0;
-      setPsMsg({ text: n > 0 ? `⚡ Продано ${n} поз.: ${r.sold.map((s: {ticker:string;reason:string}) => `${s.ticker} (${s.reason})`).join(", ")}` : `Проверено ${r.checked || 0} поз. — условий нет`, ok: n > 0 });
-      if (n > 0) setTimeout(onRefresh, 2000);
+      if (r.skipped) {
+        setPsMsg({ text: `⏸ ${r.skipped}`, ok: false });
+      } else if (n > 0) {
+        setPsMsg({ text: `⚡ Продано ${n} поз.: ${r.sold.map((s: {ticker:string;reason:string}) => `${s.ticker} (${s.reason})`).join(", ")}`, ok: true });
+        setTimeout(onRefresh, 2000);
+      } else {
+        setPsMsg({ text: `Проверено ${r.checked || 0} поз. — условий нет`, ok: false });
+      }
     } else setPsMsg({ text: r.error || "Ошибка", ok: false });
-    setTimeout(() => setPsMsg(null), 6000);
+    setTimeout(() => setPsMsg(null), 8000);
   };
 
   const real = positions.filter(p => p.instrument_type !== "currency" && p.quantity > 0);

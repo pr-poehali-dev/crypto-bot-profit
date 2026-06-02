@@ -433,6 +433,20 @@ def handler(event: dict, context) -> dict:
 
             target_pct = float(s[1])
             stop_pct   = float(s[2])
+
+            # Проверяем торговые часы Мосбиржи: 10:00–18:50 МСК пн-пт
+            now_utc = datetime.now(timezone.utc)
+            msk_h   = (now_utc.hour + 3) % 24
+            msk_min = now_utc.minute
+            msk_wd  = (now_utc.weekday() + (1 if now_utc.hour + 3 >= 24 else 0)) % 7  # 0=пн,6=вс
+            market_open = (msk_wd < 5) and (
+                (msk_h == 10 and msk_min >= 0) or
+                (10 < msk_h < 18) or
+                (msk_h == 18 and msk_min <= 49)
+            )
+            if not market_open:
+                return resp({"ok": True, "skipped": f"Биржа закрыта (МСК {msk_h:02d}:{msk_min:02d}, торги 10:00–18:50 пн-пт)", "sold": []})
+
             print(f"[portfolio_scalp_cycle] uid={uid} target={target_pct}% stop={stop_pct}%")
 
             # Получаем первый счёт (используем глобальный TOKEN — он уже настроен в env)

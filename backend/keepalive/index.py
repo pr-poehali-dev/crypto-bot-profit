@@ -178,7 +178,10 @@ def run_trade_cycle(admin_id: int) -> dict:
     except Exception:
         ps_on = False
 
-    if ps_on and 7 <= msk_h < 23:
+    msk_min = now.minute
+    msk_wd  = now.weekday()
+    moex_open = (msk_wd < 5) and ((10 <= msk_h < 18) or (msk_h == 18 and msk_min <= 49))
+    if ps_on and moex_open:
         try:
             r = requests.post(TBANK_URL, json={"action": "portfolio_scalp_cycle"},
                               headers=auth, timeout=28)
