@@ -79,74 +79,78 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
 def combo_signal(prices):
     """
     Комбо-сигнал RSI + EMA + MACD.
-    BUY:  RSI < 40  И EMA9 > EMA21  И MACD гистограмма растёт (histogram > prev_histogram)
-    SELL: RSI > 60  И EMA9 < EMA21  И MACD гистограмма падает
-    Возвращает ('BUY'|'SELL'|'HOLD', rsi, macd_hist, ema_cross)
+    BUY:  нужно 2 из 3 условий: RSI<45, EMA9>EMA21, MACD гистограмма растёт
+    SELL: нужно 2 из 3 условий: RSI>55, EMA9<EMA21, MACD гистограмма падает
+    Минимум 20 свечей (было 30 — слишком жёстко для российского рынка).
+    Возвращает ('BUY'|'SELL'|'HOLD', rsi, macd_hist, ema_diff)
     """
-    if len(prices) < 30: return "HOLD", 50.0, 0.0, 0.0
-    rsi_val  = calc_rsi(prices)
-    ema9     = calc_ema(prices, 9)
-    ema21    = calc_ema(prices, 21)
-    ema9_p   = calc_ema(prices[:-1], 9)
-    ema21_p  = calc_ema(prices[:-1], 21)
-    ema_bull = ema9 > ema21                        # быстрая выше медленной
-    ema_cross_up   = ema9 > ema21 and ema9_p <= ema21_p   # пересечение вверх
-    ema_cross_down = ema9 < ema21 and ema9_p >= ema21_p   # пересечение вниз
-    macd, sig, hist = calc_macd(prices)
-    _, _, hist_p    = calc_macd(prices[:-1])
-    macd_grow = hist > hist_p                      # гистограмма растёт
-    macd_fall = hist < hist_p                      # гистограмма падает
-    macd_bull = hist > 0                           # MACD выше нуля
-    macd_bear = hist < 0
+    if len(prices) < 20: return "HOLD", 50.0, 0.0, 0.0
+    rsi_val = calc_rsi(prices)
+    ema9    = calc_ema(prices, 9)
+    ema21   = calc_ema(prices, 21)
+    ema9_p  = calc_ema(prices[:-1], 9)
+    ema21_p = calc_ema(prices[:-1], 21)
 
-    # ── BUY: все три сигнала согласованы на покупку ─────────────────────────
-    buy_score = 0
-    if rsi_val < 40:           buy_score += 1      # RSI перепродан
-    if rsi_val < 35:           buy_score += 1      # усиление сигнала
-    if ema_bull or ema_cross_up: buy_score += 1    # EMA бычий тренд
-    if macd_grow:              buy_score += 1      # MACD разворачивается вверх
-    if not macd_bear:          buy_score += 1      # не в зоне медвежьего MACD
+    ema_bull       = ema9 > ema21
+    ema_cross_up   = ema9 > ema21 and ema9_p <= ema21_p
+    ema_cross_down = ema9 < ema21 and ema9_p >= ema21_p
 
-    # ── SELL: все три на продажу ─────────────────────────────────────────────
-    sell_score = 0
-    if rsi_val > 60:           sell_score += 1
-    if rsi_val > 65:           sell_score += 1
-    if not ema_bull or ema_cross_down: sell_score += 1
-    if macd_fall:              sell_score += 1
-    if macd_bear:              sell_score += 1
+    _, _, hist   = calc_macd(prices)   if len(prices) >= 35 else (0, 0, 0)
+    _, _, hist_p = calc_macd(prices[:-1]) if len(prices) >= 36 else (0, 0, 0)
+    macd_grow = hist > hist_p
+    macd_fall = hist < hist_p
 
-    if buy_score >= 3:   signal = "BUY"
-    elif sell_score >= 3: signal = "SELL"
-    else:                signal = "HOLD"
+    # BUY: RSI перепродан + хотя бы ещё один сигнал
+    buy_conds  = [rsi_val < 45, ema_bull or ema_cross_up, macd_grow]
+    sell_conds = [rsi_val > 55, (not ema_bull) or ema_cross_down, macd_fall]
 
-    return signal, rsi_val, hist, round(ema9 - ema21, 4)
+    buy_score  = sum(buy_conds)
+    sell_score = sum(sell_conds)
+
+    # Требуем 2 из 3 (было 3 из 5 — слишком редко)
+    if buy_score >= 2:    sig = "BUY"
+    elif sell_score >= 2: sig = "SELL"
+    else:                 sig = "HOLD"
+
+    return sig, rsi_val, hist, round(ema9 - ema21, 4)
 
 def volume_score(candles):
     """Рост объёма относительно среднего."""
-    if len(candles) < 5: return 0
-    vols = [float(c.get("volume", 0)) for c in candles]
-    avg  = sum(vols[:-3]) / max(len(vols[:-3]), 1)
+    if len(candles) < 5: return 1.0
+    vols   = [float(c.get("volume", 0)) for c in candles]
+    avg    = sum(vols[:-3]) / max(len(vols[:-3]), 1)
     recent = sum(vols[-3:]) / 3
-    return recent / max(avg, 1)
+    return recent / max(avg, 0.001)
 
 def score_instrument(figi, token):
     """
     Комплексная оценка инструмента: RSI + EMA + MACD + объём.
+    Запрашиваем 8 часов 5-минутных свечей (~96 свечей) — достаточно даже
+    если рынок не торговался несколько часов.
     Возвращает (score 0-100, signal, rsi, macd_hist).
     """
-    candles = get_candles(figi, token, interval="CANDLE_INTERVAL_5_MIN", hours=4)
-    if len(candles) < 30: return 0, "HOLD", 50.0, 0.0
-    prices = [money(c.get("close")) for c in candles if c.get("isComplete")]
-    if len(prices) < 30: return 0, "HOLD", 50.0, 0.0
+    candles = get_candles(figi, token, interval="CANDLE_INTERVAL_5_MIN", hours=8)
+    prices  = [money(c.get("close")) for c in candles if c.get("isComplete") and money(c.get("close")) > 0]
+
+    print(f"[score] figi={figi[-6:]} candles={len(candles)} prices={len(prices)}")
+
+    if len(prices) < 20:
+        # Пробуем часовые свечи как запасной вариант
+        candles = get_candles(figi, token, interval="CANDLE_INTERVAL_HOUR", hours=72)
+        prices  = [money(c.get("close")) for c in candles if c.get("isComplete") and money(c.get("close")) > 0]
+        print(f"[score] fallback 1h figi={figi[-6:]} prices={len(prices)}")
+
+    if len(prices) < 20: return 0, "HOLD", 50.0, 0.0
 
     signal, rsi_val, macd_hist, ema_diff = combo_signal(prices)
-    vm  = volume_score(candles)
+    vm = volume_score(candles)
+
+    print(f"[score] figi={figi[-6:]} signal={signal} rsi={rsi_val:.1f} macd={macd_hist:.5f} ema_diff={ema_diff:.4f} vol={vm:.2f}")
 
     if signal == "BUY":
-        # Чем ниже RSI и выше объём — тем выше скор
-        rsi_bonus  = max(0, (40 - rsi_val) * 2)          # до +20
-        vol_bonus  = min(30, (vm - 1) * 20) if vm > 1 else 0
-        macd_bonus = min(20, abs(macd_hist) * 10000)
+        rsi_bonus  = max(0, (45 - rsi_val) * 2)
+        vol_bonus  = min(25, (vm - 1) * 15) if vm > 1 else 0
+        macd_bonus = min(15, abs(macd_hist) * 8000)
         score = 50 + rsi_bonus + vol_bonus + macd_bonus
     else:
         score = 0
@@ -293,76 +297,106 @@ def handler(event: dict, context) -> dict:
             return resp({"ok": True, "checked": len(open_trades), "sold": sold})
 
         if action == "run_scalp":
-            # Автоматический цикл скальпинга
             us = db(f"SELECT key, value FROM {SCHEMA}.user_settings WHERE user_id = %s", (uid,))
             us_map = {r["key"]: r["value"] for r in us}
-            # Разрешаем запуск если scalp_enabled=true ИЛИ вызван напрямую (force=true)
-            force = body.get("force", False) if method == "POST" else False
+            force = body.get("force", False)
             if us_map.get("scalp_enabled") != "true" and not force:
-                return resp({"ok": False, "reason": "Скальпинг выключен. Включите его в настройках скальпера."})
+                return resp({"ok": False, "reason": "Скальпинг выключен."})
             target_pct = float(us_map.get("scalp_target_pct", 1.0))
-            stop_pct = float(us_map.get("scalp_stop_pct", 2.0))
-            amount = float(us_map.get("scalp_amount", 1000))
-            # Проверяем открытые позиции напрямую (без рекурсии)
+            stop_pct   = float(us_map.get("scalp_stop_pct", 2.0))
+            amount     = float(us_map.get("scalp_amount", 1000))
+
+            print(f"[run_scalp] uid={uid} target={target_pct}% stop={stop_pct}% amount={amount}")
+
+            # ── 1. Проверяем открытые позиции — закрываем по тейку/стопу ────
             open_trades = db(f"SELECT * FROM {SCHEMA}.scalp_trades WHERE user_id = %s AND status = 'open'", (uid,))
             sold = []
-            if open_trades:
-                accs0 = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
-                acct0 = accs0.get("accounts", [{}])[0].get("id", "")
-                for trade in open_trades:
-                    lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [trade["figi"]]}, token)
-                    cur_price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
-                    if cur_price <= 0: continue
-                    buy_price = float(trade["buy_price"])
-                    change_pct = (cur_price - buy_price) / buy_price * 100
-                    should_sell = change_pct >= float(trade["target_pct"]) or change_pct <= -float(trade["stop_pct"])
-                    if should_sell:
-                        order0 = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
-                            "accountId": acct0, "figi": trade["figi"],
-                            "direction": "ORDER_DIRECTION_SELL",
-                            "quantity": trade["lots"], "orderType": "ORDER_TYPE_MARKET",
-                        }, token)
-                        pnl0 = round((cur_price - buy_price) * trade["lots"], 2)
-                        db(f"UPDATE {SCHEMA}.scalp_trades SET status='closed', sell_price=%s, pnl=%s, pnl_pct=%s, order_sell_id=%s, closed_at=NOW() WHERE id=%s",
-                           (cur_price, pnl0, round(change_pct, 4), order0.get("orderId",""), trade["id"]))
-                        sold.append({"ticker": trade["ticker"], "pnl": pnl0, "pnl_pct": round(change_pct, 2),
-                                    "reason": "TARGET" if change_pct >= float(trade["target_pct"]) else "STOP"})
-            check_data = {"sold": sold}
-            # Ищем новые возможности
+            accs0 = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
+            acct0 = accs0.get("accounts", [{}])[0].get("id", "")
+            print(f"[run_scalp] open_trades={len(open_trades)} account={acct0}")
+
+            for trade in open_trades:
+                lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [trade["figi"]]}, token)
+                cur_price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
+                if cur_price <= 0:
+                    print(f"[run_scalp] {trade['ticker']} cur_price=0 — skip")
+                    continue
+                buy_price  = float(trade["buy_price"])
+                change_pct = (cur_price - buy_price) / buy_price * 100 if buy_price > 0 else 0
+                t_pct = float(trade["target_pct"])
+                s_pct = float(trade["stop_pct"])
+                print(f"[run_scalp] {trade['ticker']} cur={cur_price} buy={buy_price} chg={change_pct:.2f}% target={t_pct}% stop={s_pct}%")
+
+                if change_pct >= t_pct or change_pct <= -s_pct:
+                    reason = "TARGET" if change_pct >= t_pct else "STOP"
+                    order0 = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
+                        "accountId": acct0, "figi": trade["figi"],
+                        "direction": "ORDER_DIRECTION_SELL",
+                        "quantity": int(trade["lots"]), "orderType": "ORDER_TYPE_MARKET",
+                    }, token)
+                    pnl0 = round((cur_price - buy_price) * float(trade["lots"]), 2)
+                    db(f"UPDATE {SCHEMA}.scalp_trades SET status='closed', sell_price=%s, pnl=%s, pnl_pct=%s, order_sell_id=%s, closed_at=NOW() WHERE id=%s",
+                       (cur_price, pnl0, round(change_pct, 4), order0.get("orderId",""), trade["id"]))
+                    print(f"[run_scalp] SOLD {trade['ticker']} reason={reason} pnl={pnl0} order={order0}")
+                    sold.append({"ticker": trade["ticker"], "pnl": pnl0, "pnl_pct": round(change_pct, 2), "reason": reason})
+
+            # ── 2. Ищем новые точки входа ─────────────────────────────────
             watchlist_rows = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE key = 'watchlist_cache' AND user_id = 1")
-            if not watchlist_rows: return resp({"ok": True, "sold": check_data.get("sold", []), "bought": []})
-            all_inst = json.loads(watchlist_rows[0]["value"])
-            sample = random.sample(all_inst, min(15, len(all_inst)))
-            bought = []
-            accs = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
-            account_id = accs.get("accounts", [{}])[0].get("id", "")
-            portfolio = tb("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {"accountId": account_id, "currency": "RUB"}, token)
-            free_cash = money(portfolio.get("totalAmountCurrencies"))
+            if not watchlist_rows:
+                print("[run_scalp] watchlist пустой — покупок нет")
+                return resp({"ok": True, "sold": sold, "bought": [], "reason": "watchlist пустой"})
+
+            all_inst   = json.loads(watchlist_rows[0]["value"])
+            sample     = random.sample(all_inst, min(20, len(all_inst)))
+            account_id = acct0
+            portfolio  = tb("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {"accountId": account_id, "currency": "RUB"}, token)
+            free_cash  = money(portfolio.get("totalAmountCurrencies"))
             open_count = len(db(f"SELECT id FROM {SCHEMA}.scalp_trades WHERE user_id = %s AND status = 'open'", (uid,)))
-            if open_count >= 5: return resp({"ok": True, "sold": check_data.get("sold", []), "bought": [], "reason": "Максимум 5 открытых позиций"})
+
+            print(f"[run_scalp] free_cash={free_cash:.0f} open_count={open_count} sample={len(sample)}")
+
+            if open_count >= 5:
+                return resp({"ok": True, "sold": sold, "bought": [], "reason": "Максимум 5 открытых позиций"})
+            if free_cash < amount * 0.5:
+                return resp({"ok": True, "sold": sold, "bought": [], "reason": f"Мало свободных средств: {free_cash:.0f} ₽"})
+
+            bought = []
             for inst in sample:
-                if free_cash < amount * 0.9: break
+                if free_cash < amount * 0.5: break
                 if open_count >= 5: break
+
                 score, signal, rsi_val, macd_hist = score_instrument(inst["figi"], token)
-                if score < 60 or signal != "BUY": continue
+                print(f"[run_scalp] {inst['ticker']} score={score} signal={signal} rsi={rsi_val}")
+
+                # Порог снижен с 60 до 50 — даём больше возможностей
+                if score < 50 or signal != "BUY": continue
+
                 lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [inst["figi"]]}, token)
                 price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
                 lot = inst.get("lot", 1)
                 if price <= 0: continue
+
                 lots = max(1, int(amount / (price * lot)))
                 cost = lots * price * lot
-                if cost > free_cash: continue
+                if cost > free_cash:
+                    print(f"[run_scalp] {inst['ticker']} cost={cost:.0f} > free={free_cash:.0f} — skip")
+                    continue
+
                 order = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
                     "accountId": account_id, "figi": inst["figi"],
                     "direction": "ORDER_DIRECTION_BUY", "quantity": lots, "orderType": "ORDER_TYPE_MARKET",
                 }, token)
+                print(f"[run_scalp] BUY {inst['ticker']} lots={lots} price={price} cost={cost:.0f} order={order}")
+
                 db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                    (uid, inst["figi"], inst["ticker"], lots, price, round(cost,2), target_pct, stop_pct, order.get("orderId","")))
                 add_referral_earning(uid, cost, token)
-                free_cash -= cost
+                free_cash  -= cost
                 open_count += 1
                 bought.append({"ticker": inst["ticker"], "score": score, "signal": signal, "rsi": rsi_val, "macd": macd_hist, "price": price, "lots": lots, "cost": round(cost,2)})
-            return resp({"ok": True, "sold": check_data.get("sold", []), "bought": bought})
+
+            print(f"[run_scalp] done sold={len(sold)} bought={len(bought)}")
+            return resp({"ok": True, "sold": sold, "bought": bought})
 
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 

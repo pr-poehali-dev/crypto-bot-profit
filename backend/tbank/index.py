@@ -27,6 +27,15 @@ def check_session(session_id: str) -> bool:
     cur.close(); conn.close()
     return ok
 
+def get_uid_from_session(session_id: str):
+    """Возвращает user_id из сессии или None."""
+    if not session_id or len(session_id) < 32: return None
+    conn = psycopg2.connect(DB_URL)
+    cur  = conn.cursor()
+    cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
+    row = cur.fetchone(); cur.close(); conn.close()
+    return row[0] if row else None
+
 def resp(body, code=200):
     return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, default=str)}
 
@@ -381,18 +390,13 @@ def handler(event: dict, context) -> dict:
 
         # ── Сохранить настройки портфельного скальпера ────────────────────────
         if action == "portfolio_scalp_save":
-            conn = psycopg2.connect(DB_URL)
-            cur  = conn.cursor()
-            cur.execute(f"SELECT id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
-            row  = cur.fetchone()
-            if not row: cur.close(); conn.close(); return resp({"error": "Не авторизован"}, 401)
-            cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s", (session_id,))
-            uid_row = cur.fetchone()
-            uid = uid_row[0] if uid_row else None
-            if not uid: cur.close(); conn.close(); return resp({"error": "Пользователь не найден"}, 404)
+            uid = get_uid_from_session(session_id)
+            if not uid: return resp({"error": "Пользователь не найден"}, 404)
             enabled    = bool(body.get("enabled", False))
             target_pct = float(body.get("target_pct", 2.0))
             stop_pct   = float(body.get("stop_pct", 3.0))
+            conn = psycopg2.connect(DB_URL)
+            cur  = conn.cursor()
             cur.execute(
                 f"INSERT INTO {SCHEMA}.portfolio_scalp_settings (user_id, enabled, target_pct, stop_pct, updated_at) "
                 f"VALUES (%s,%s,%s,%s,NOW()) ON CONFLICT (user_id) DO UPDATE "
@@ -400,63 +404,55 @@ def handler(event: dict, context) -> dict:
                 (uid, enabled, target_pct, stop_pct, enabled, target_pct, stop_pct)
             )
             conn.commit(); cur.close(); conn.close()
+            print(f"[portfolio_scalp_save] uid={uid} enabled={enabled} target={target_pct}% stop={stop_pct}%")
             return resp({"ok": True, "enabled": enabled, "target_pct": target_pct, "stop_pct": stop_pct})
 
         # ── Получить настройки портфельного скальпера ────────────────────────
         if action == "portfolio_scalp_status":
+            uid = get_uid_from_session(session_id)
+            if not uid: return resp({"error": "Пользователь не найден"}, 404)
             conn = psycopg2.connect(DB_URL)
             cur  = conn.cursor()
-            cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
-            row  = cur.fetchone()
-            if not row: cur.close(); conn.close(); return resp({"error": "Не авторизован"}, 401)
-            uid = row[0]
             cur.execute(f"SELECT enabled, target_pct, stop_pct FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
-            s = cur.fetchone()
-            cur.close(); conn.close()
+            s = cur.fetchone(); cur.close(); conn.close()
             if not s:
                 return resp({"enabled": False, "target_pct": 2.0, "stop_pct": 3.0})
             return resp({"enabled": bool(s[0]), "target_pct": float(s[1]), "stop_pct": float(s[2])})
 
         # ── Цикл авто-продажи по портфелю (вызывается keepalive) ─────────────
         if action == "portfolio_scalp_cycle":
+            uid = get_uid_from_session(session_id)
+            if not uid: return resp({"error": "Не авторизован"}, 401)
+
             conn = psycopg2.connect(DB_URL)
             cur  = conn.cursor()
-            cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
-            row  = cur.fetchone()
-            if not row: cur.close(); conn.close(); return resp({"error": "Не авторизован"}, 401)
-            uid = row[0]
             cur.execute(f"SELECT enabled, target_pct, stop_pct FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
-            s = cur.fetchone()
-            cur.close(); conn.close()
+            s = cur.fetchone(); cur.close(); conn.close()
             if not s or not s[0]:
                 return resp({"ok": True, "skipped": "авто-продажа выключена", "sold": []})
 
             target_pct = float(s[1])
             stop_pct   = float(s[2])
+            print(f"[portfolio_scalp_cycle] uid={uid} target={target_pct}% stop={stop_pct}%")
 
-            # Берём токен пользователя
-            conn2 = psycopg2.connect(DB_URL)
-            cur2  = conn2.cursor()
-            cur2.execute(f"SELECT tbank_token FROM {SCHEMA}.users WHERE id=%s", (uid,))
-            u = cur2.fetchone(); cur2.close(); conn2.close()
-            user_token = u[0] if u else ""
-            if not user_token:
-                return resp({"error": "Токен Т-Банк не найден"}, 400)
-
-            # Получаем первый счёт
-            acc_data   = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
-            accounts   = acc_data.get("accounts", [])
+            # Получаем первый счёт (используем глобальный TOKEN — он уже настроен в env)
+            acc_data  = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            accounts  = acc_data.get("accounts", [])
+            print(f"[portfolio_scalp_cycle] accounts={len(accounts)} raw={acc_data}")
             if not accounts:
-                return resp({"error": "Счета не найдены"}, 404)
+                return resp({"error": f"Счета не найдены: {acc_data}"}, 404)
             account_id = accounts[0].get("id", "")
 
             # Портфель
-            portfolio  = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {
+            portfolio = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {
                 "accountId": account_id, "currency": "RUB"
             })
+            positions = portfolio.get("positions", [])
+            print(f"[portfolio_scalp_cycle] account={account_id} positions={len(positions)}")
 
             sold = []
-            for p in portfolio.get("positions", []):
+            skipped_log = []
+            for p in positions:
                 inst_type = p.get("instrumentType", "")
                 if inst_type == "currency": continue
                 qty       = money(p.get("quantity"))
@@ -468,33 +464,41 @@ def handler(event: dict, context) -> dict:
                 cost      = avg_price * qty
                 pnl_pct   = round(pnl / cost * 100, 2) if cost > 0 else 0
                 inst_info = resolve_figi(figi)
+                ticker    = inst_info["ticker"]
+
+                print(f"[portfolio_scalp_cycle] {ticker} pnl_pct={pnl_pct}% target={target_pct}% stop={stop_pct}% qty={qty} avg={avg_price} cur={cur_price}")
 
                 reason = None
                 if pnl_pct >= target_pct:
                     reason = f"ТЕЙК +{pnl_pct:.2f}% ≥ +{target_pct}%"
                 elif pnl_pct <= -stop_pct:
                     reason = f"СТОП {pnl_pct:.2f}% ≤ -{stop_pct}%"
+                else:
+                    skipped_log.append(f"{ticker}:{pnl_pct:.2f}%")
 
                 if reason:
-                    lots = max(1, int(qty))
+                    lots  = max(1, int(qty))
                     order = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
-                        "accountId":  account_id,
-                        "figi":       figi,
-                        "direction":  "ORDER_DIRECTION_SELL",
-                        "quantity":   lots,
-                        "orderType":  "ORDER_TYPE_MARKET",
+                        "accountId": account_id,
+                        "figi":      figi,
+                        "direction": "ORDER_DIRECTION_SELL",
+                        "quantity":  lots,
+                        "orderType": "ORDER_TYPE_MARKET",
                     })
+                    print(f"[portfolio_scalp_cycle] SELL {ticker} lots={lots} reason={reason} order={order}")
                     sold.append({
                         "figi":     figi,
-                        "ticker":   inst_info["ticker"],
+                        "ticker":   ticker,
                         "lots":     lots,
                         "pnl_pct":  pnl_pct,
                         "pnl_rub":  round(pnl, 2),
                         "reason":   reason,
                         "order_id": order.get("orderId", ""),
+                        "order_status": order.get("executionReportStatus", ""),
                     })
 
-            return resp({"ok": True, "sold": sold, "checked": len(portfolio.get("positions", []))})
+            print(f"[portfolio_scalp_cycle] sold={len(sold)} skipped={skipped_log}")
+            return resp({"ok": True, "sold": sold, "checked": len(positions), "skipped": skipped_log})
 
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 
