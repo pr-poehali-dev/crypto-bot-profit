@@ -2975,7 +2975,7 @@ const SCALP_INTERVALS = [
 
 /* ===== SCALPER PAGE ===== */
 function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalpIntervalMin, scalpCountdown, setScalpCountdown, scalpRunning, triggerScalpCycle, scalpMsg }: ScalperPageProps) {
-  const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string }[]; trades_today: number; pnl_today: number; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean } } | null>(null);
+  const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string }[]; trades_today: number; pnl_today: number; accounts: { id: string; name: string }[]; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean; account_id: string } } | null>(null);
   const [history, setHistory] = useState<{ id: number; ticker: string; buy_price: number; sell_price: number; pnl: number; pnl_pct: number; status: string; opened_at: string; closed_at: string }[]>([]);
   const [candidates, setCandidates] = useState<{ figi: string; ticker: string; name: string; score: number; rsi: number; volatility: number; price: number; lot: number }[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -2984,6 +2984,7 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
   const [targetPct, setTargetPct] = useState("1.0");
   const [stopPct, setStopPct] = useState("2.0");
   const [amount, setAmount] = useState("1000");
+  const [accountId, setAccountId] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"main" | "history">("main");
 
@@ -2995,6 +2996,7 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
       setTargetPct(String(d.settings.target_pct));
       setStopPct(String(d.settings.stop_pct));
       setAmount(String(d.settings.amount));
+      if (d.settings.account_id) setAccountId(d.settings.account_id);
     }
   }, []);
 
@@ -3016,7 +3018,7 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 
   const saveSettings = async () => {
     setSaving(true);
-    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled: scalpEnabled }) });
+    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled: scalpEnabled, account_id: accountId }) });
     await loadStatus();
     setSaving(false);
     setMsg({ text: "✓ Настройки сохранены", ok: true });
@@ -3128,6 +3130,23 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
         {/* Настройки */}
         <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3">
           <div className="section-label">НАСТРОЙКИ</div>
+
+          {/* Брокерский счёт */}
+          {scStatus?.accounts && scStatus.accounts.length > 0 && (
+            <div>
+              <div className="section-label text-[10px] mb-1">Брокерский счёт Т-Банк</div>
+              <select value={accountId} onChange={e => setAccountId(e.target.value)}
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-yellow)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)] appearance-none cursor-pointer">
+                {scStatus.accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                ))}
+              </select>
+              <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-1">
+                Выбери счёт, с которого скальпер будет торговать
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "Цель прибыли %", val: targetPct, set: setTargetPct },

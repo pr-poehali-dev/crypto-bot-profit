@@ -191,17 +191,22 @@ def handler(event: dict, context) -> dict:
         closed_today = db(f"SELECT COUNT(*) as cnt, COALESCE(SUM(pnl),0) as pnl FROM {SCHEMA}.scalp_trades WHERE user_id = %s AND status = 'closed' AND closed_at > NOW() - INTERVAL '24 hours'", (uid,))
         settings_rows = db(f"SELECT key, value FROM {SCHEMA}.bot_settings WHERE user_id = 1 AND key IN ('scalp_enabled','scalp_default_target_pct','scalp_default_stop_pct')")
         settings = {r["key"]: r["value"] for r in settings_rows}
-        user_settings = db(f"SELECT key, value FROM {SCHEMA}.user_settings WHERE user_id = %s AND key IN ('scalp_target_pct','scalp_stop_pct','scalp_amount','scalp_enabled')", (uid,))
+        user_settings = db(f"SELECT key, value FROM {SCHEMA}.user_settings WHERE user_id = %s AND key IN ('scalp_target_pct','scalp_stop_pct','scalp_amount','scalp_enabled','scalp_account_id')", (uid,))
         us = {r["key"]: r["value"] for r in user_settings}
+        # Список счетов для выбора
+        acc_data = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
+        accounts = [{"id": a.get("id"), "name": a.get("name", a.get("id"))} for a in acc_data.get("accounts", []) if a.get("id")]
         return resp({
             "open_trades": open_trades,
             "trades_today": int(closed_today[0]["cnt"]) if closed_today else 0,
             "pnl_today": float(closed_today[0]["pnl"]) if closed_today else 0,
+            "accounts": accounts,
             "settings": {
                 "target_pct": float(us.get("scalp_target_pct", settings.get("scalp_default_target_pct", 1.0))),
                 "stop_pct": float(us.get("scalp_stop_pct", settings.get("scalp_default_stop_pct", 2.0))),
                 "amount": float(us.get("scalp_amount", 1000)),
                 "enabled": us.get("scalp_enabled", "false") == "true",
+                "account_id": us.get("scalp_account_id", accounts[0]["id"] if accounts else ""),
             }
         })
 
@@ -232,11 +237,15 @@ def handler(event: dict, context) -> dict:
         action = body.get("action", "")
 
         if action == "save_settings":
-            target = str(body.get("target_pct", 1.0))
-            stop = str(body.get("stop_pct", 2.0))
-            amount = str(body.get("amount", 1000))
+            target  = str(body.get("target_pct", 1.0))
+            stop    = str(body.get("stop_pct", 2.0))
+            amount  = str(body.get("amount", 1000))
             enabled = "true" if body.get("enabled") else "false"
-            for k, v in [("scalp_target_pct", target), ("scalp_stop_pct", stop), ("scalp_amount", amount), ("scalp_enabled", enabled)]:
+            account = str(body.get("account_id", ""))
+            pairs   = [("scalp_target_pct", target), ("scalp_stop_pct", stop), ("scalp_amount", amount), ("scalp_enabled", enabled)]
+            if account:
+                pairs.append(("scalp_account_id", account))
+            for k, v in pairs:
                 db(f"INSERT INTO {SCHEMA}.user_settings (user_id, key, value) VALUES (%s, %s, %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s, updated_at = NOW()", (uid, k, v, v))
             return resp({"ok": True})
 
@@ -306,13 +315,19 @@ def handler(event: dict, context) -> dict:
             stop_pct   = float(us_map.get("scalp_stop_pct", 2.0))
             amount     = float(us_map.get("scalp_amount", 1000))
 
-            print(f"[run_scalp] uid={uid} target={target_pct}% stop={stop_pct}% amount={amount}")
+            # Используем сохранённый счёт, либо первый из доступных
+            saved_acct = us_map.get("scalp_account_id", "")
+            accs0 = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
+            all_accounts = accs0.get("accounts", [])
+            if saved_acct and any(a.get("id") == saved_acct for a in all_accounts):
+                acct0 = saved_acct
+            else:
+                acct0 = all_accounts[0].get("id", "") if all_accounts else ""
+
+            print(f"[run_scalp] uid={uid} account={acct0} target={target_pct}% stop={stop_pct}% amount={amount}")
 
             # ── 1. Проверяем открытые позиции — закрываем по тейку/стопу ────
             open_trades = db(f"SELECT * FROM {SCHEMA}.scalp_trades WHERE user_id = %s AND status = 'open'", (uid,))
-            sold = []
-            accs0 = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
-            acct0 = accs0.get("accounts", [{}])[0].get("id", "")
             print(f"[run_scalp] open_trades={len(open_trades)} account={acct0}")
 
             for trade in open_trades:
