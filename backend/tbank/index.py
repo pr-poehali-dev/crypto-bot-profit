@@ -395,17 +395,18 @@ def handler(event: dict, context) -> dict:
             enabled    = bool(body.get("enabled", False))
             target_pct = float(body.get("target_pct", 2.0))
             stop_pct   = float(body.get("stop_pct", 3.0))
+            account_id = str(body.get("account_id", ""))
             conn = psycopg2.connect(DB_URL)
             cur  = conn.cursor()
             cur.execute(
-                f"INSERT INTO {SCHEMA}.portfolio_scalp_settings (user_id, enabled, target_pct, stop_pct, updated_at) "
-                f"VALUES (%s,%s,%s,%s,NOW()) ON CONFLICT (user_id) DO UPDATE "
-                f"SET enabled=%s, target_pct=%s, stop_pct=%s, updated_at=NOW()",
-                (uid, enabled, target_pct, stop_pct, enabled, target_pct, stop_pct)
+                f"INSERT INTO {SCHEMA}.portfolio_scalp_settings (user_id, enabled, target_pct, stop_pct, account_id, updated_at) "
+                f"VALUES (%s,%s,%s,%s,%s,NOW()) ON CONFLICT (user_id) DO UPDATE "
+                f"SET enabled=%s, target_pct=%s, stop_pct=%s, account_id=%s, updated_at=NOW()",
+                (uid, enabled, target_pct, stop_pct, account_id, enabled, target_pct, stop_pct, account_id)
             )
             conn.commit(); cur.close(); conn.close()
-            print(f"[portfolio_scalp_save] uid={uid} enabled={enabled} target={target_pct}% stop={stop_pct}%")
-            return resp({"ok": True, "enabled": enabled, "target_pct": target_pct, "stop_pct": stop_pct})
+            print(f"[portfolio_scalp_save] uid={uid} enabled={enabled} target={target_pct}% stop={stop_pct}% account={account_id}")
+            return resp({"ok": True, "enabled": enabled, "target_pct": target_pct, "stop_pct": stop_pct, "account_id": account_id})
 
         # ── Получить настройки портфельного скальпера ────────────────────────
         if action == "portfolio_scalp_status":
@@ -413,11 +414,15 @@ def handler(event: dict, context) -> dict:
             if not uid: return resp({"error": "Пользователь не найден"}, 404)
             conn = psycopg2.connect(DB_URL)
             cur  = conn.cursor()
-            cur.execute(f"SELECT enabled, target_pct, stop_pct FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
+            cur.execute(f"SELECT enabled, target_pct, stop_pct, account_id FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
             s = cur.fetchone(); cur.close(); conn.close()
+            # Список счетов для выбора
+            acc_data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            accounts = [{"id": a.get("id"), "name": a.get("name", a.get("id"))} for a in acc_data.get("accounts", []) if a.get("id")]
             if not s:
-                return resp({"enabled": False, "target_pct": 2.0, "stop_pct": 3.0})
-            return resp({"enabled": bool(s[0]), "target_pct": float(s[1]), "stop_pct": float(s[2])})
+                return resp({"enabled": False, "target_pct": 2.0, "stop_pct": 3.0, "account_id": accounts[0]["id"] if accounts else "", "accounts": accounts})
+            saved_acct = s[3] or (accounts[0]["id"] if accounts else "")
+            return resp({"enabled": bool(s[0]), "target_pct": float(s[1]), "stop_pct": float(s[2]), "account_id": saved_acct, "accounts": accounts})
 
         # ── Цикл авто-продажи по портфелю (вызывается keepalive) ─────────────
         if action == "portfolio_scalp_cycle":
@@ -426,13 +431,14 @@ def handler(event: dict, context) -> dict:
 
             conn = psycopg2.connect(DB_URL)
             cur  = conn.cursor()
-            cur.execute(f"SELECT enabled, target_pct, stop_pct FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
+            cur.execute(f"SELECT enabled, target_pct, stop_pct, account_id FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
             s = cur.fetchone(); cur.close(); conn.close()
             if not s or not s[0]:
                 return resp({"ok": True, "skipped": "авто-продажа выключена", "sold": []})
 
             target_pct = float(s[1])
             stop_pct   = float(s[2])
+            saved_acct = s[3] or ""
 
             # Проверяем торговые часы Мосбиржи: 10:00–18:50 МСК пн-пт
             now_utc = datetime.now(timezone.utc)
@@ -447,15 +453,15 @@ def handler(event: dict, context) -> dict:
             if not market_open:
                 return resp({"ok": True, "skipped": f"Биржа закрыта (МСК {msk_h:02d}:{msk_min:02d}, торги 10:00–18:50 пн-пт)", "sold": []})
 
-            print(f"[portfolio_scalp_cycle] uid={uid} target={target_pct}% stop={stop_pct}%")
-
-            # Получаем первый счёт (используем глобальный TOKEN — он уже настроен в env)
             acc_data  = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
             accounts  = acc_data.get("accounts", [])
-            print(f"[portfolio_scalp_cycle] accounts={len(accounts)} raw={acc_data}")
             if not accounts:
                 return resp({"error": f"Счета не найдены: {acc_data}"}, 404)
-            account_id = accounts[0].get("id", "")
+            if saved_acct and any(a.get("id") == saved_acct for a in accounts):
+                account_id = saved_acct
+            else:
+                account_id = accounts[0].get("id", "")
+            print(f"[portfolio_scalp_cycle] uid={uid} account={account_id} target={target_pct}% stop={stop_pct}%")
 
             # Портфель
             portfolio = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {

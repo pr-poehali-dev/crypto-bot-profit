@@ -225,8 +225,12 @@ def handler(event: dict, context) -> dict:
         last_run = db_get("bot_last_run") or "—"
         trades   = db_get("bot_last_trades") or "[]"
         pnl      = db_get("bot_daily_pnl") or "0"
+        saved_acct = db_get("trade_account_id") or ""
         total_instruments = db_get("watchlist_cache")
         count = len(json.loads(total_instruments)) if total_instruments else 0
+        # Список счетов
+        acc_data = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+        accounts = [{"id": a.get("id"), "name": a.get("name", a.get("id"))} for a in acc_data.get("accounts", []) if a.get("id")]
         return resp({
             "enabled": enabled == "true",
             "mode": mode,
@@ -236,6 +240,8 @@ def handler(event: dict, context) -> dict:
             "last_trades": json.loads(trades),
             "daily_pnl": float(pnl),
             "instruments_count": count,
+            "accounts": accounts,
+            "account_id": saved_acct or (accounts[0]["id"] if accounts else ""),
         })
 
     # ── GET список инструментов ─────────────────────────────────────────────
@@ -253,6 +259,8 @@ def handler(event: dict, context) -> dict:
             db_set("trade_fixed_amount", str(body.get("fixed_amount", 5000)))
             db_set("max_daily_loss_pct", str(body.get("stop_pct", 3)))
             db_set("auto_bot_enabled", "true" if body.get("enabled") else "false")
+            if body.get("account_id"):
+                db_set("trade_account_id", str(body.get("account_id")))
             return resp({"success": True})
 
         if action == "refresh_instruments":
@@ -266,11 +274,16 @@ def handler(event: dict, context) -> dict:
             fixed_amount = float(db_get("trade_fixed_amount") or 5000)
             stop_pct     = float(db_get("max_daily_loss_pct") or 3)
 
-            # Счёт
-            accounts = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
-            accs = accounts.get("accounts", [])
+            # Счёт — используем сохранённый или первый из доступных
+            saved_acct = db_get("trade_account_id") or ""
+            accs_data  = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            accs       = accs_data.get("accounts", [])
             if not accs: return resp({"error": "Счёт не найден"}, 404)
-            account_id = accs[0]["id"]
+            if saved_acct and any(a.get("id") == saved_acct for a in accs):
+                account_id = saved_acct
+            else:
+                account_id = accs[0]["id"]
+            print(f"[run_once] account_id={account_id}")
 
             # Портфель и позиции
             positions, portfolio_data = get_portfolio_positions(account_id)

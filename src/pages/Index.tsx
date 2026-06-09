@@ -915,11 +915,21 @@ function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
   const [psRunning, setPsRunning]     = useState(false);
   const [psMsg, setPsMsg]             = useState<{ text: string; ok: boolean } | null>(null);
   const [psExpanded, setPsExpanded]   = useState(false);
+  const [psAccountId, setPsAccountId] = useState("");
+  const [psAccounts, setPsAccounts]   = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     authFetch(TBANK_URL, { method: "POST", body: JSON.stringify({ action: "portfolio_scalp_status" }) })
       .then(r => r.json())
-      .then(d => { if (!d.error) { setPsEnabled(d.enabled); setPsTarget(d.target_pct); setPsStop(d.stop_pct); } })
+      .then(d => {
+        if (!d.error) {
+          setPsEnabled(d.enabled);
+          setPsTarget(d.target_pct);
+          setPsStop(d.stop_pct);
+          if (d.accounts) setPsAccounts(d.accounts);
+          if (d.account_id) setPsAccountId(d.account_id);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -927,7 +937,7 @@ function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
     setPsSaving(true);
     const r = await authFetch(TBANK_URL, {
       method: "POST",
-      body: JSON.stringify({ action: "portfolio_scalp_save", enabled, target_pct: psTarget, stop_pct: psStop }),
+      body: JSON.stringify({ action: "portfolio_scalp_save", enabled, target_pct: psTarget, stop_pct: psStop, account_id: psAccountId }),
     }).then(r => r.json());
     setPsSaving(false);
     if (r.ok) { setPsEnabled(r.enabled); setPsMsg({ text: r.enabled ? `✓ Авто-продажа активна · тейк +${r.target_pct}% · стоп -${r.stop_pct}%` : "Авто-продажа выключена", ok: r.enabled }); }
@@ -1053,6 +1063,19 @@ function TBankPortfolioTab({ positions, loading, onRefresh, accountId }: {
             <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
               Бот автоматически продаёт позиции из портфеля когда достигается <span className="text-[var(--cyber-green)]">тейк-профит</span> или <span className="text-[var(--cyber-red)]">стоп-лосс</span>. Работает в планировщике 24/7.
             </div>
+
+            {/* Выбор счёта */}
+            {psAccounts.length > 0 && (
+              <div>
+                <div className="section-label text-[10px] mb-1">Брокерский счёт</div>
+                <select value={psAccountId} onChange={e => setPsAccountId(e.target.value)}
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-green)] text-[var(--cyber-text)] font-mono text-xs px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)] appearance-none cursor-pointer">
+                  {psAccounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1928,6 +1951,9 @@ interface BotStatus {
   last_run: string;
   last_trades: { ticker: string; signal: string; lots?: number; price?: number; total?: number; status?: string; rsi?: number; reason?: string }[];
   daily_pnl: number;
+  accounts?: { id: string; name: string }[];
+  account_id?: string;
+  instruments_count?: number;
 }
 
 const INTERVALS = [
@@ -1961,6 +1987,7 @@ function AutoBotPage({
 
   const [mode, setMode] = useState("10pct");
   const [fixedAmount, setFixedAmount] = useState("5000");
+  const [botAccountId, setBotAccountId] = useState("");
   const enabled = botEnabled;
   const setEnabled = setBotEnabled;
   const intervalMin = botIntervalMin;
@@ -1976,6 +2003,7 @@ function AutoBotPage({
       setStatus(d);
       setMode(d.mode);
       setFixedAmount(String(d.fixed_amount));
+      if (d.account_id) setBotAccountId(d.account_id);
     } catch { /* skip */ }
     setLoading(false);
   }, []);
@@ -1996,7 +2024,7 @@ function AutoBotPage({
     try {
       const r = await authFetch(AUTOTRADER_URL, {
         method: "POST",
-        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled }),
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled, account_id: botAccountId }),
       });
       const d = await r.json();
       if (d.success) {
@@ -2012,7 +2040,7 @@ function AutoBotPage({
     try {
       const r = await authFetch(AUTOTRADER_URL, {
         method: "POST",
-        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled }),
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled, account_id: botAccountId }),
       });
       const d = await r.json();
       if (d.success) { setMsg({ text: "✓ Настройки сохранены", ok: true }); loadStatus(); }
@@ -2127,6 +2155,22 @@ function AutoBotPage({
           </div>
         </div>
       </div>
+
+      {/* Брокерский счёт */}
+      {status?.accounts && status.accounts.length > 0 && (
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+          <div className="section-label mb-2">БРОКЕРСКИЙ СЧЁТ Т-БАНК</div>
+          <select value={botAccountId} onChange={e => setBotAccountId(e.target.value)}
+            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-cyan)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)] appearance-none cursor-pointer">
+            {status.accounts.map((a: { id: string; name: string }) => (
+              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+            ))}
+          </select>
+          <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-1.5">
+            Бот будет торговать с выбранного счёта. Сохрани настройки после выбора.
+          </div>
+        </div>
+      )}
 
       {/* Настройки суммы на сделку */}
       <div className="cyber-card rounded-none p-4 animate-fade-in-up">
