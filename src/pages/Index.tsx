@@ -4091,11 +4091,11 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
 
   // Топ-6 разделов для нижней панели мобиле
   const BOTTOM_NAV = [
-    { id: "dashboard", icon: "LayoutDashboard", label: "Главная" },
-    { id: "tbank", icon: "Building2", label: "Т-Банк" },
-    { id: "autobot", icon: "Bot", label: "Автобот" },
-    { id: "strategies", icon: "Brain", label: "Стратегии" },
-    { id: "settings_menu", icon: "Menu", label: "Меню" },
+    { id: "dashboard",  icon: "LayoutDashboard", label: "Главная" },
+    { id: "tbank",      icon: "Building2",        label: "Т-Банк" },
+    { id: "autobot",    icon: "Bot",              label: "Автобот" },
+    { id: "scalper",    icon: "Zap",              label: "Скальпер" },
+    { id: "settings_menu", icon: "Menu",          label: "Меню" },
   ];
 
   return (
@@ -4174,42 +4174,45 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         )}
       </aside>
 
-      {/* Основной контент — запрещаем горизонтальный свайп */}
-      <div className="flex-1 flex flex-col min-w-0 pb-16 md:pb-0" style={{ touchAction: "pan-y", overscrollBehavior: "none" }}>
+      {/* Основной контент */}
+      <div className="flex-1 flex flex-col min-w-0" style={{ touchAction: "pan-y", overscrollBehavior: "none", paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" }}>
 
         {/* Хедер */}
         <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
           style={{ background: "var(--cyber-surface)", borderColor: "var(--cyber-border)" }}>
           <div className="flex items-center gap-2 md:gap-4 min-w-0">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="cyber-btn p-1.5 rounded-none flex-shrink-0">
+            {/* На мобиле — лого, на десктопе — кнопка меню */}
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="cyber-btn p-1.5 rounded-none flex-shrink-0 md:flex hidden">
               <Icon name="Menu" size={16} />
             </button>
+            <div className="w-7 h-7 md:hidden flex items-center justify-center flex-shrink-0"
+              style={{ border: "1px solid var(--cyber-green)", boxShadow: "0 0 8px rgba(0,255,136,0.2)" }}>
+              <Icon name="Bot" size={14} style={{ color: "var(--cyber-green)" }} />
+            </div>
             <div className="font-orbitron text-xs md:text-sm font-semibold text-[var(--cyber-text)] truncate">
               {activeNav?.label?.toUpperCase()}
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Индикатор автобота */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {/* Индикаторы ботов — компактные на мобиле */}
             {botEnabled && (
               <button onClick={() => setActiveSection("autobot")}
-                className="flex items-center gap-1 px-2 py-1 border border-[var(--cyber-green)] rounded-none">
+                className="flex items-center gap-1 px-1.5 py-1 border border-[var(--cyber-green)] rounded-none">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-green)] animate-pulse" />
-                <span className="font-orbitron text-xs neon-text hidden sm:block">
+                <span className="font-orbitron text-[10px] neon-text">
                   {Math.floor(botCountdown / 60).toString().padStart(2,"0")}:{(botCountdown % 60).toString().padStart(2,"0")}
                 </span>
               </button>
             )}
-            {/* Индикатор скальпера */}
             {scalpEnabled && (
               <button onClick={() => setActiveSection("scalper")}
-                className="flex items-center gap-1 px-2 py-1 border border-[var(--cyber-yellow)] rounded-none">
+                className="flex items-center gap-1 px-1.5 py-1 border border-[var(--cyber-yellow)] rounded-none">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-yellow)] animate-pulse" />
-                <span className="font-orbitron text-xs text-[var(--cyber-yellow)] hidden sm:block">
+                <span className="font-orbitron text-[10px] text-[var(--cyber-yellow)]">
                   ⚡{Math.floor(scalpCountdown / 60).toString().padStart(2,"0")}:{(scalpCountdown % 60).toString().padStart(2,"0")}
                 </span>
               </button>
             )}
-            {/* Уведомление скальпера */}
             {scalpMsg && (
               <div className={`hidden md:block font-mono text-xs px-2 py-1 border rounded-none ${scalpMsg.ok ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : "border-[var(--cyber-red)] loss"}`}>
                 {scalpMsg.text}
@@ -4218,9 +4221,6 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
             <div className="hidden md:block font-mono text-xs text-[var(--cyber-text-dim)]">
               {time.toLocaleTimeString("ru-RU")}
             </div>
-            <button className="cyber-btn p-1.5 rounded-none">
-              <Icon name="Bell" size={14} />
-            </button>
           </div>
         </header>
 
@@ -4230,28 +4230,37 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
 
       {/* Нижняя навигация — только на мобиле */}
       <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden border-t"
-        style={{ background: "var(--cyber-surface)", borderColor: "var(--cyber-border)" }}>
+        style={{
+          background: "var(--cyber-surface)",
+          borderColor: "var(--cyber-border)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        }}>
         <div className="flex items-center">
-          {BOTTOM_NAV.map(item => (
-            <button key={item.id}
-              onClick={() => item.id === "settings_menu" ? setSidebarOpen(true) : handleNavClick(item.id)}
-              className={`flex-1 flex flex-col items-center gap-0.5 py-2 px-1 transition-all ${
-                activeSection === item.id && item.id !== "settings_menu"
-                  ? "text-[var(--cyber-green)]"
-                  : "text-[var(--cyber-text-dim)]"
-              }`}>
-              <div className="relative">
-                <Icon name={item.icon} size={20} fallback="Circle" />
-                {item.id === "autobot" && botEnabled && (
-                  <div className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--cyber-green)] animate-pulse" />
-                )}
-              </div>
-              <span className="text-[9px] font-mono tracking-wide">{item.label}</span>
-              {activeSection === item.id && item.id !== "settings_menu" && (
-                <div className="w-4 h-0.5 rounded-full" style={{ background: "var(--cyber-green)" }} />
-              )}
-            </button>
-          ))}
+          {BOTTOM_NAV.map(item => {
+            const isActive = activeSection === item.id && item.id !== "settings_menu";
+            return (
+              <button key={item.id}
+                onClick={() => item.id === "settings_menu" ? setSidebarOpen(true) : handleNavClick(item.id)}
+                className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-all active:scale-95"
+                style={{ color: isActive ? "var(--cyber-green)" : "var(--cyber-text-dim)" }}>
+                {/* Активная полоска сверху */}
+                <div className="w-full h-0.5 mb-0.5" style={{
+                  background: isActive ? "var(--cyber-green)" : "transparent",
+                  boxShadow: isActive ? "0 0 6px var(--cyber-green)" : "none",
+                }} />
+                <div className="relative">
+                  <Icon name={item.icon} size={22} fallback="Circle" />
+                  {item.id === "autobot" && botEnabled && (
+                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--cyber-green)] animate-pulse border border-[var(--cyber-surface)]" />
+                  )}
+                  {item.id === "scalper" && scalpEnabled && (
+                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--cyber-yellow)] animate-pulse border border-[var(--cyber-surface)]" />
+                  )}
+                </div>
+                <span className="text-[10px] font-mono leading-none">{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
