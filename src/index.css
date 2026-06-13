@@ -468,26 +468,27 @@
   background: var(--cyber-green-dim);
 }
 
-/* ── Отключаем авто-свайп полностью ── */
-html {
-  overscroll-behavior: none;
-  overscroll-behavior-x: none;
-}
+/* ── Базовый скролл ── */
+html,
 body {
-  overscroll-behavior: none;
-  overscroll-behavior-x: none;
-  touch-action: pan-y;
-  -webkit-overflow-scrolling: auto;
+  height: 100%;
+  overflow: hidden;
+}
+#root {
+  height: 100%;
+  overflow: hidden;
 }
 /* Сайдбар не должен триггерить свайп назад */
 aside {
   overscroll-behavior: contain;
   touch-action: pan-y;
 }
-/* Главный контент — только вертикальный скролл */
+/* Главный контент — вертикальный скролл, плавный на iOS */
 main {
-  overscroll-behavior: contain;
-  touch-action: pan-y;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 /* ── Mobile ── */
