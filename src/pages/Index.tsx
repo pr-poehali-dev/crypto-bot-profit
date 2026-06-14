@@ -4614,35 +4614,33 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       </div>
 
       {/* Pricing */}
-      <div className="px-4 py-16 max-w-3xl mx-auto">
+      <div className="py-16">
         <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-10">ТАРИФЫ</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {plans.map((p, i) => (
-            <div key={p.name} className="cyber-card rounded-none p-5 flex flex-col"
-              style={{ borderColor: p.badge ? p.color : undefined }}>
-              {p.badge && <div className="font-mono text-[10px] mb-2 tracking-widest" style={{ color: p.color }}>{p.badge}</div>}
-              <div className="font-orbitron text-base font-black mb-1" style={{ color: p.color }}>{p.name}</div>
-              <div className="font-orbitron text-2xl font-black text-[var(--cyber-text)] mb-4">
-                {p.price === 0 ? "0 ₽" : `${p.price} ₽`}
-                <span className="font-mono text-xs text-[var(--cyber-text-dim)]">/мес</span>
+        <div className="overflow-x-auto px-4 pb-4" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--cyber-yellow) var(--cyber-bg-3)" }}>
+          <div style={{ display: "flex", gap: 16, minWidth: "fit-content", maxWidth: 900, margin: "0 auto" }}>
+            {plans.map((p, i) => (
+              <div key={p.name} style={{ flex: "0 0 280px", background: "var(--cyber-surface)", border: `2px solid ${p.badge ? p.color : "var(--cyber-border)"}`, padding: 24, display: "flex", flexDirection: "column", boxShadow: p.badge ? `0 0 24px ${p.color}33` : "none" }}>
+                {p.badge && <div className="font-mono text-[10px] mb-2 tracking-widest" style={{ color: p.color }}>{p.badge}</div>}
+                <div className="font-orbitron text-lg font-black mb-1" style={{ color: p.color }}>{p.name}</div>
+                <div className="font-orbitron text-3xl font-black mb-1" style={{ color: "var(--cyber-text)" }}>
+                  {p.price === 0 ? "0 ₽" : `${p.price} ₽`}
+                </div>
+                <div className="font-mono text-xs mb-5" style={{ color: "var(--cyber-text-dim)" }}>в месяц</div>
+                <ul style={{ flex: 1, marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {p.features.map(f => (
+                    <li key={f.text} style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: "monospace", fontSize: 12, color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.45, textDecoration: f.ok ? "none" : "line-through" }}>
+                      <span style={{ color: f.ok ? p.color : "var(--cyber-border)", flexShrink: 0, fontSize: 14 }}>{f.ok ? "✓" : "✕"}</span>
+                      {f.text}
+                    </li>
+                  ))}
+                </ul>
+                <button onClick={onGetStarted}
+                  style={{ width: "100%", padding: "10px 0", fontFamily: "'Orbitron', monospace", fontSize: 11, fontWeight: "bold", border: `2px solid ${p.color}`, color: p.color, background: p.badge ? `${p.color}18` : "transparent", cursor: "pointer", transition: "all 0.2s" }}>
+                  {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ"}
+                </button>
               </div>
-              <ul className="space-y-1.5 mb-6 flex-1">
-                {p.features.map(f => (
-                  <li key={f.text} className={`font-mono text-xs flex items-center gap-1.5 ${f.ok ? "text-[var(--cyber-text)]" : "text-[var(--cyber-text-dim)] line-through opacity-40"}`}>
-                    <span style={{ color: f.ok ? p.color : "transparent", border: f.ok ? "none" : "1px solid var(--cyber-border)", borderRadius: "50%", width: 12, height: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, flexShrink: 0 }}>
-                      {f.ok ? "✓" : ""}
-                    </span>
-                    {f.text}
-                  </li>
-                ))}
-              </ul>
-              <button onClick={onGetStarted}
-                className="w-full py-2.5 font-mono text-xs border transition-all hover:opacity-80"
-                style={{ borderColor: p.color, color: p.color }}>
-                {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ ТАРИФ"}
-              </button>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
