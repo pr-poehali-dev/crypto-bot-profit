@@ -4537,7 +4537,6 @@ function GenericPage({ title, icon }: { title: string; icon: string }) {
 
 /* ===== LANDING PAGE ===== */
 function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
-  const [showInfo, setShowInfo] = useState(false);
   const features = [
     { icon: "Zap",        title: "Скальпинг акций",      desc: "Автоматические сделки по RSI, EMA, MACD. До 8 сделок в день. Бот сам выбирает момент входа и выхода." },
     { icon: "Bot",        title: "Автотрейдинг 24/7",    desc: "Бот работает без остановки, торгует пока ты спишь. Настрой один раз — забудь." },
@@ -4579,43 +4578,10 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
               style={{ boxShadow: "0 0 20px rgba(0,255,136,0.3)" }}>
               НАЧАТЬ БЕСПЛАТНО →
             </button>
-            <button onClick={() => setShowInfo(true)} className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all text-center">
+            <a href="#features" className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all text-center">
               УЗНАТЬ БОЛЬШЕ
-            </button>
+            </a>
           </div>
-
-          {/* Модальное окно "Узнать больше" */}
-          {showInfo && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)" }} onClick={() => setShowInfo(false)}>
-              <div className="w-full max-w-lg" style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-green)", boxShadow: "0 0 40px rgba(0,255,136,0.2)", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
-                {/* Шапка */}
-                <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--cyber-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-                  <div className="font-orbitron text-base font-bold neon-text">ВОЗМОЖНОСТИ КИБЕРБОТ</div>
-                  <button onClick={() => setShowInfo(false)} style={{ color: "var(--cyber-text-dim)", fontSize: "20px", lineHeight: 1, background: "none", border: "none", cursor: "pointer" }}>✕</button>
-                </div>
-                {/* Прокручиваемый список */}
-                <div style={{ overflowY: "auto", padding: "12px 20px", flex: 1, scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg-3)" }}>
-                  {features.map(f => (
-                    <div key={f.title} style={{ display: "flex", gap: "12px", padding: "12px 0", borderBottom: "1px solid var(--cyber-border)" }}>
-                      <div style={{ flexShrink: 0, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--cyber-border)" }}>
-                        <Icon name={f.icon} size={18} style={{ color: "var(--cyber-green)" }} />
-                      </div>
-                      <div>
-                        <div className="font-orbitron text-sm font-bold" style={{ color: "var(--cyber-text)", marginBottom: 3 }}>{f.title}</div>
-                        <div className="font-mono text-xs" style={{ color: "var(--cyber-text-dim)", lineHeight: 1.5 }}>{f.desc}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {/* Кнопка */}
-                <div style={{ padding: "14px 20px", borderTop: "1px solid var(--cyber-border)", flexShrink: 0 }}>
-                  <button onClick={onGetStarted} className="w-full py-3 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)] transition-all">
-                    НАЧАТЬ БЕСПЛАТНО →
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
           <div className="mt-6 flex items-center justify-center gap-6 font-mono text-[10px] text-[var(--cyber-text-dim)] animate-fade-in-up">
             <span>✓ Бесплатная регистрация</span>
             <span>✓ Т-Банк Open API</span>
@@ -4627,7 +4593,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       {/* Features */}
       <div id="features" className="px-4 py-16 max-w-4xl mx-auto">
         <div className="font-orbitron text-2xl font-bold text-center neon-text-cyan mb-10">ВОЗМОЖНОСТИ</div>
-        <div className="overflow-y-auto max-h-[420px] pr-1" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg-3)" }}>
+        <div className="overflow-y-auto max-h-[420px] pr-1 mb-8" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg-3)" }}>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {features.map(f => (
               <div key={f.title} className="cyber-card rounded-none p-4 hover:border-[var(--cyber-green)] transition-all">
@@ -4637,6 +4603,13 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
               </div>
             ))}
           </div>
+        </div>
+        <div className="text-center">
+          <button onClick={onGetStarted}
+            className="px-10 py-4 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)] transition-all"
+            style={{ boxShadow: "0 0 20px rgba(0,255,136,0.3)" }}>
+            НАЧАТЬ БЕСПЛАТНО →
+          </button>
         </div>
       </div>
 
