@@ -172,7 +172,7 @@ const NAV_ITEMS = [
   { id: "bingx", icon: "BarChart2", label: "BingX" },
   { id: "autobot", icon: "Bot", label: "Автобот" },
   { id: "wallet", icon: "Wallet", label: "Кошелёк" },
-  { id: "history", icon: "History", label: "История" },
+
   { id: "portfolio", icon: "PieChart", label: "Портфель" },
   { id: "positions", icon: "Layers", label: "Позиции" },
   { id: "signals", icon: "Radio", label: "Сигналы" },
