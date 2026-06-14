@@ -92,16 +92,20 @@
 
 /* Мобильный скролл */
 @media (max-width: 767px) {
-  html,
-  body {
+  html {
     height: 100%;
-    overflow: auto;
+  }
+  body {
+    min-height: 100%;
+    overflow-y: scroll;
+    overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
   }
-
   #root {
-    min-height: 100%;
-    overflow: visible;
+    min-height: 100dvh;
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
   }
 }
 
