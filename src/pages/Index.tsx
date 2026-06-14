@@ -4532,6 +4532,7 @@ function GenericPage({ title, icon }: { title: string; icon: string }) {
 
 /* ===== LANDING PAGE ===== */
 function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+  const [showModal, setShowModal] = useState(false);
   const features = [
     { icon: "Zap",        title: "Скальпинг акций",      desc: "Автоматические сделки по RSI, EMA, MACD. До 8 сделок в день. Бот сам выбирает момент входа и выхода." },
     { icon: "Bot",        title: "Автотрейдинг 24/7",    desc: "Бот работает без остановки, торгует пока ты спишь. Настрой один раз — забудь." },
@@ -4573,10 +4574,55 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
               style={{ boxShadow: "0 0 20px rgba(0,255,136,0.3)" }}>
               НАЧАТЬ БЕСПЛАТНО →
             </button>
-            <a href="#features" className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all text-center">
+            <button onClick={() => setShowModal(true)}
+              className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] hover:text-[var(--cyber-cyan)] transition-all">
               УЗНАТЬ БОЛЬШЕ
-            </a>
+            </button>
           </div>
+
+          {/* Модалка "Узнать больше" */}
+          {showModal && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+              style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(6px)" }}
+              onClick={() => setShowModal(false)}>
+              <div className="w-full sm:max-w-md flex flex-col"
+                style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-green)", boxShadow: "0 0 60px rgba(0,255,136,0.15)", maxHeight: "85vh", borderBottom: "none" }}
+                onClick={e => e.stopPropagation()}>
+                {/* Шапка */}
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--cyber-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 28, height: 28, border: "1px solid var(--cyber-green)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon name="Bot" size={14} style={{ color: "var(--cyber-green)" }} />
+                    </div>
+                    <span style={{ fontFamily: "'Orbitron', monospace", fontSize: 13, fontWeight: 900, color: "var(--cyber-green)" }}>ВОЗМОЖНОСТИ КИБЕРБОТ</span>
+                  </div>
+                  <button onClick={() => setShowModal(false)}
+                    style={{ fontFamily: "monospace", fontSize: 18, color: "var(--cyber-text-dim)", background: "none", border: "none", cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
+                </div>
+                {/* Список с прокруткой */}
+                <div style={{ overflowY: "auto", flex: 1, scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg)" }}>
+                  {features.map((f, i) => (
+                    <div key={f.title} style={{ display: "flex", gap: 14, padding: "14px 20px", borderBottom: "1px solid var(--cyber-border)", background: i % 2 === 0 ? "transparent" : "rgba(0,255,136,0.02)" }}>
+                      <div style={{ width: 36, height: 36, flexShrink: 0, border: "1px solid var(--cyber-border)", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,255,136,0.05)" }}>
+                        <Icon name={f.icon} size={16} style={{ color: "var(--cyber-green)" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 12, fontWeight: 700, color: "var(--cyber-text)", marginBottom: 4 }}>{f.title}</div>
+                        <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)", lineHeight: 1.6 }}>{f.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Кнопка */}
+                <div style={{ padding: "16px 20px", borderTop: "1px solid var(--cyber-border)", flexShrink: 0 }}>
+                  <button onClick={() => { setShowModal(false); onGetStarted(); }}
+                    style={{ width: "100%", padding: "14px 0", fontFamily: "'Orbitron', monospace", fontSize: 12, fontWeight: 900, border: "2px solid var(--cyber-green)", color: "var(--cyber-green)", background: "rgba(0,255,136,0.08)", cursor: "pointer", boxShadow: "0 0 20px rgba(0,255,136,0.2)" }}>
+                    НАЧАТЬ БЕСПЛАТНО →
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="mt-6 flex items-center justify-center gap-6 font-mono text-[10px] text-[var(--cyber-text-dim)] animate-fade-in-up">
             <span>✓ Бесплатная регистрация</span>
             <span>✓ Т-Банк Open API</span>
@@ -4615,32 +4661,44 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       <div className="py-16 px-4 max-w-5xl mx-auto">
         <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-2">ТАРИФЫ</div>
         <div className="font-mono text-xs text-center text-[var(--cyber-text-dim)] mb-10">Начни бесплатно — перейди на PRO когда будешь готов</div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           {plans.map((p, i) => (
-            <div key={p.name} className="flex flex-col"
-              style={{ background: "var(--cyber-surface)", border: `2px solid ${p.badge ? p.color : "var(--cyber-border)"}`, padding: 24, boxShadow: p.badge ? `0 0 30px ${p.color}22` : "none", position: "relative" }}>
+            <div key={p.name} className="flex flex-col relative overflow-hidden"
+              style={{
+                background: `linear-gradient(135deg, var(--cyber-surface) 0%, ${p.color}11 100%)`,
+                border: `2px solid ${p.color}`,
+                padding: 0,
+                boxShadow: `0 0 40px ${p.color}22, inset 0 0 40px ${p.color}08`,
+              }}>
+              {/* Цветная полоса сверху */}
+              <div style={{ height: 4, background: `linear-gradient(90deg, transparent, ${p.color}, transparent)` }} />
               {p.badge && (
-                <div style={{ position: "absolute", top: -1, right: 16, background: p.color, color: "#000", fontFamily: "monospace", fontSize: 9, fontWeight: 900, padding: "2px 8px", letterSpacing: "0.1em" }}>
+                <div style={{ position: "absolute", top: 16, right: 0, background: p.color, color: "#000", fontFamily: "'Orbitron', monospace", fontSize: 9, fontWeight: 900, padding: "4px 12px 4px 8px", letterSpacing: "0.12em" }}>
                   {p.badge}
                 </div>
               )}
-              <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 16, fontWeight: 900, color: p.color, marginBottom: 8 }}>{p.name}</div>
-              <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 32, fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1, marginBottom: 4 }}>
-                {p.price === 0 ? "0 ₽" : `${p.price} ₽`}
+              <div style={{ padding: "20px 24px 24px", display: "flex", flexDirection: "column", flex: 1 }}>
+                <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 13, fontWeight: 900, color: p.color, letterSpacing: "0.15em", marginBottom: 12 }}>{p.name}</div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 4, marginBottom: 4 }}>
+                  <span style={{ fontFamily: "'Orbitron', monospace", fontSize: 40, fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1 }}>
+                    {p.price === 0 ? "0" : p.price}
+                  </span>
+                  <span style={{ fontFamily: "monospace", fontSize: 16, color: p.color, marginBottom: 4 }}>₽</span>
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)", marginBottom: 20 }}>в месяц</div>
+                <ul style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+                  {p.features.map(f => (
+                    <li key={f.text} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: "monospace", fontSize: 12 }}>
+                      <span style={{ color: f.ok ? p.color : "var(--cyber-text-dim)", flexShrink: 0, opacity: f.ok ? 1 : 0.4, fontWeight: "bold" }}>{f.ok ? "✓" : "–"}</span>
+                      <span style={{ color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.4, lineHeight: 1.4 }}>{f.text}</span>
+                    </li>
+                  ))}
+                </ul>
+                <button onClick={onGetStarted}
+                  style={{ width: "100%", padding: "13px 0", fontFamily: "'Orbitron', monospace", fontSize: 11, fontWeight: 900, border: `2px solid ${p.color}`, color: i === 2 ? "#000" : p.color, background: i === 2 ? p.color : `${p.color}15`, cursor: "pointer", letterSpacing: "0.08em", transition: "all 0.2s", boxShadow: i === 2 ? `0 0 20px ${p.color}55` : "none" }}>
+                  {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ →"}
+                </button>
               </div>
-              <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)", marginBottom: 20 }}>в месяц</div>
-              <ul style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-                {p.features.map(f => (
-                  <li key={f.text} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: "monospace", fontSize: 12, color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.4 }}>
-                    <span style={{ color: f.ok ? p.color : "var(--cyber-border)", flexShrink: 0, marginTop: 1 }}>{f.ok ? "✓" : "–"}</span>
-                    {f.text}
-                  </li>
-                ))}
-              </ul>
-              <button onClick={onGetStarted}
-                style={{ width: "100%", padding: "12px 0", fontFamily: "'Orbitron', monospace", fontSize: 11, fontWeight: "bold", border: `2px solid ${p.color}`, color: p.badge ? "#000" : p.color, background: p.badge ? p.color : "transparent", cursor: "pointer", transition: "all 0.2s" }}>
-                {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ →"}
-              </button>
             </div>
           ))}
         </div>
