@@ -2102,10 +2102,158 @@ function AutoBotPage({
     { id: "fixed", label: "Фиксированная сумма", desc: "Точная сумма в рублях на сделку" },
   ];
 
+  // BingX bot state
+  const [bxEnabled, setBxEnabled] = useState(false);
+  const [bxInterval, setBxInterval] = useState(15);
+  const [bxCountdown, setBxCountdown] = useState(0);
+  const [bxRunning, setBxRunning] = useState(false);
+  const [bxMsg, setBxMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [bxAmount, setBxAmount] = useState("20");
+  const [bxTarget, setBxTarget] = useState("0.8");
+  const [bxStop, setBxStop] = useState("1.5");
+  const [bxHasKeys, setBxHasKeys] = useState<boolean | null>(null);
+  const [botTab, setBotTab] = useState<"tbank" | "bingx">("tbank");
+
+  useEffect(() => {
+    authFetch(`${BINGX_URL}?action=check_keys`).then(r => r.json()).then(d => setBxHasKeys(d.has_keys)).catch(() => setBxHasKeys(false));
+  }, []);
+
+  useEffect(() => {
+    if (!bxEnabled) { setBxCountdown(0); return; }
+    const total = bxInterval * 60;
+    setBxCountdown(c => c > 0 ? c : total);
+    const tick = setInterval(() => setBxCountdown(p => p <= 1 ? total : p - 1), 1000);
+    return () => clearInterval(tick);
+  }, [bxEnabled, bxInterval]);
+
+  const bxRef = useRef(0);
+  useEffect(() => {
+    if (!bxEnabled || bxCountdown !== bxInterval * 60) return;
+    if (bxRef.current === 0) { bxRef.current = 1; return; }
+    runBxCycle();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bxCountdown]);
+
+  const runBxCycle = async () => {
+    if (bxRunning) return;
+    setBxRunning(true); setBxMsg(null);
+    try {
+      await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "save_scalp_settings", bingx_scalp_amount: bxAmount, bingx_scalp_target: bxTarget, bingx_scalp_stop: bxStop }) });
+      const d = await authFetch(BINGX_URL, { method: "POST", body: JSON.stringify({ action: "scalp_cycle" }) }).then(r => r.json());
+      if (d.ok) setBxMsg({ text: `⚡ Куплено: ${d.bought?.length || 0} · Продано: ${d.sold?.length || 0} · Открытых: ${d.open_count || 0}`, ok: true });
+      else setBxMsg({ text: d.error || "Ошибка", ok: false });
+    } catch { setBxMsg({ text: "Ошибка соединения", ok: false }); }
+    setBxRunning(false);
+    setTimeout(() => setBxMsg(null), 6000);
+  };
+
+  const fmtBx = (s: number) => `${Math.floor(s/60).toString().padStart(2,"0")}:${(s%60).toString().padStart(2,"0")}`;
+
+  const BX_INTERVALS = [5, 10, 15, 30, 60];
+
   if (loading) return <div className="flex items-center justify-center p-20"><Spinner /></div>;
 
   return (
     <div className="space-y-4">
+
+      {/* Переключатель брокера */}
+      <div className="flex gap-2">
+        <button onClick={() => setBotTab("tbank")}
+          className={`flex-1 py-2.5 font-orbitron text-xs font-bold border rounded-none transition-all flex items-center justify-center gap-2 ${botTab === "tbank" ? "border-[var(--cyber-green)] text-[var(--cyber-green)] bg-[rgba(0,255,136,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          <Icon name="Building2" size={13} /> Т-БАНК БОТ
+        </button>
+        <button onClick={() => setBotTab("bingx")}
+          className={`flex-1 py-2.5 font-orbitron text-xs font-bold border rounded-none transition-all flex items-center justify-center gap-2 ${botTab === "bingx" ? "border-[var(--cyber-green)] text-[var(--cyber-green)] bg-[rgba(0,255,136,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          <Icon name="BarChart2" size={13} /> BINGX БОТ
+        </button>
+      </div>
+
+      {/* ═══ BINGX BOT ═══ */}
+      {botTab === "bingx" && (
+        <div className="space-y-4">
+          {bxHasKeys === false && (
+            <div className="cyber-card rounded-none p-4 border border-[var(--cyber-yellow)]">
+              <div className="flex items-start gap-2">
+                <Icon name="AlertTriangle" size={14} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
+                <div className="font-mono text-xs text-[var(--cyber-yellow)]">
+                  API ключи BingX не добавлены. Перейди в раздел <span className="font-bold">BingX → API Ключи</span> и подключи аккаунт.
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="cyber-card-glow rounded-none p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+              <div>
+                <div className="font-orbitron text-base font-bold flex items-center gap-2 text-[var(--cyber-text)]">
+                  <Icon name="BarChart2" size={16} className="neon-text" />
+                  АВТОБОТ BINGX
+                </div>
+                <div className="section-label mt-0.5">Спот-скальпинг · Авто-цикл по таймеру</div>
+              </div>
+              <button onClick={() => { const ne = !bxEnabled; setBxEnabled(ne); if (ne) { setBxCountdown(bxInterval * 60); bxRef.current = 0; setTimeout(() => runBxCycle(), 500); } else setBxCountdown(0); }}
+                className={`px-5 py-2 font-orbitron text-xs font-bold rounded-none border transition-all ${bxEnabled ? "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]" : "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)]"}`}>
+                {bxEnabled ? "⏹ СТОП" : "▶ СТАРТ"}
+              </button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="section-label shrink-0">Интервал:</span>
+              {BX_INTERVALS.map(iv => (
+                <button key={iv} onClick={() => { setBxInterval(iv); if (bxEnabled) setBxCountdown(iv * 60); }} disabled={bxEnabled}
+                  className={`px-2.5 py-1 font-mono text-xs rounded-none border transition-all disabled:opacity-50 ${bxInterval === iv ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                  {iv < 60 ? `${iv} мин` : "1 час"}
+                </button>
+              ))}
+            </div>
+            {bxEnabled && bxCountdown > 0 && (
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] h-1.5 rounded-none overflow-hidden">
+                  <div className="h-full bg-[var(--cyber-green)] transition-all duration-1000"
+                    style={{ width: `${100 - (bxCountdown / (bxInterval * 60) * 100)}%`, boxShadow: "0 0 6px var(--cyber-green)" }} />
+                </div>
+                <div className="font-orbitron text-sm font-bold neon-text shrink-0">{fmtBx(bxCountdown)}</div>
+                <div className="section-label shrink-0">до цикла</div>
+              </div>
+            )}
+          </div>
+          {bxMsg && (
+            <div className={`rounded-none p-3 font-mono text-xs border ${bxMsg.ok ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-red)] text-[var(--cyber-red)]"}`}>
+              {bxMsg.text}
+            </div>
+          )}
+          <div className="cyber-card rounded-none p-4 space-y-3">
+            <div className="section-label">НАСТРОЙКИ СДЕЛКИ</div>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Сумма USDT", val: bxAmount, set: setBxAmount },
+                { label: "Цель %", val: bxTarget, set: setBxTarget },
+                { label: "Стоп-лосс %", val: bxStop, set: setBxStop },
+              ].map(f => (
+                <div key={f.label}>
+                  <div className="section-label text-[10px] mb-1">{f.label}</div>
+                  <input value={f.val} onChange={e => f.set(e.target.value)} type="number" step="0.1" min="0.1"
+                    className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+                </div>
+              ))}
+            </div>
+            <button onClick={runBxCycle} disabled={bxRunning}
+              className="w-full py-2.5 font-orbitron text-xs font-bold border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+              {bxRunning ? <><Spinner /><span>ТОРГУЮ...</span></> : <><Icon name="Zap" size={13} /><span>ЗАПУСТИТЬ ЦИКЛ ВРУЧНУЮ</span></>}
+            </button>
+          </div>
+          <div className="cyber-card rounded-none p-3 border border-[rgba(0,255,136,0.2)]">
+            <div className="flex items-start gap-2">
+              <Icon name="Info" size={13} className="neon-text shrink-0 mt-0.5" />
+              <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+                <span className="neon-text font-semibold">Логика бота: </span>
+                сканирует топ пары BingX по RSI/объёму, покупает на споте, продаёт при достижении цели% или стоп-лосса.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Т-БАНК БОТ ═══ */}
+      {botTab === "tbank" && <div className="space-y-4">
 
       {/* Шапка со статусом + таймер */}
       <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up">
@@ -2285,6 +2433,8 @@ function AutoBotPage({
           </div>
         </div>
       </div>
+
+      </div>}
 
     </div>
   );
