@@ -4537,13 +4537,18 @@ function GenericPage({ title, icon }: { title: string; icon: string }) {
 
 /* ===== LANDING PAGE ===== */
 function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+  const [showInfo, setShowInfo] = useState(false);
   const features = [
-    { icon: "Zap",        title: "Скальпинг акций",      desc: "Автоматические сделки по RSI, EMA, MACD. До 8 сделок в день." },
-    { icon: "Bot",        title: "Автотрейдинг 24/7",    desc: "Бот работает без остановки, торгует пока ты спишь." },
-    { icon: "Shield",     title: "Стоп-лосс защита",     desc: "Авто-продажа при достижении заданного % убытка." },
-    { icon: "Smartphone", title: "С телефона",            desc: "Управляй ботом с мобильного — удобный интерфейс." },
-    { icon: "Users",      title: "Реф. программа",       desc: "Приглашай друзей и получай % с каждой их сделки." },
-    { icon: "Building2",  title: "Т-Банк Invest",        desc: "Прямое подключение через официальный Open API." },
+    { icon: "Zap",        title: "Скальпинг акций",      desc: "Автоматические сделки по RSI, EMA, MACD. До 8 сделок в день. Бот сам выбирает момент входа и выхода." },
+    { icon: "Bot",        title: "Автотрейдинг 24/7",    desc: "Бот работает без остановки, торгует пока ты спишь. Настрой один раз — забудь." },
+    { icon: "Shield",     title: "Стоп-лосс защита",     desc: "Авто-продажа при достижении заданного % убытка. Дневной лимит убытка — бот останавливается сам." },
+    { icon: "Smartphone", title: "С телефона",            desc: "Управляй ботом с мобильного — удобный интерфейс. Смотри баланс, сделки и статус в реальном времени." },
+    { icon: "Users",      title: "Реф. программа",       desc: "Приглашай друзей и получай % с каждой их сделки. Пассивный доход от реферальной сети." },
+    { icon: "Building2",  title: "Т-Банк Invest",        desc: "Прямое подключение через официальный Open API. Акции, ETF, фьючерсы на Московской бирже." },
+    { icon: "BarChart2",  title: "BingX крипто",         desc: "Спот и фьючерсная торговля на бирже BingX. Скальпинг по топ криптопарам автоматически." },
+    { icon: "TrendingUp", title: "RSI + EMA сигналы",    desc: "Технический анализ в реальном времени. Бот покупает только при подтверждённом сигнале." },
+    { icon: "RefreshCw",  title: "Серверный планировщик",desc: "Бот работает на сервере 24/7 даже когда приложение закрыто. Никаких VPS не нужно." },
+    { icon: "CreditCard", title: "Тарифы от 0 ₽",       desc: "Бесплатный план для старта. Базовый — 490 ₽/мес, PRO — 990 ₽/мес. Отмена в любой момент." },
   ];
   const plans = (["free", "basic", "pro"] as PlanKey[]).map(k => PLAN_INFO[k]);
   return (
@@ -4574,10 +4579,43 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
               style={{ boxShadow: "0 0 20px rgba(0,255,136,0.3)" }}>
               НАЧАТЬ БЕСПЛАТНО →
             </button>
-            <a href="#features" className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all text-center">
+            <button onClick={() => setShowInfo(true)} className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all text-center">
               УЗНАТЬ БОЛЬШЕ
-            </a>
+            </button>
           </div>
+
+          {/* Модальное окно "Узнать больше" */}
+          {showInfo && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)" }} onClick={() => setShowInfo(false)}>
+              <div className="w-full max-w-lg" style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-green)", boxShadow: "0 0 40px rgba(0,255,136,0.2)", maxHeight: "80vh", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+                {/* Шапка */}
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--cyber-border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                  <div className="font-orbitron text-base font-bold neon-text">ВОЗМОЖНОСТИ КИБЕРБОТ</div>
+                  <button onClick={() => setShowInfo(false)} style={{ color: "var(--cyber-text-dim)", fontSize: "20px", lineHeight: 1, background: "none", border: "none", cursor: "pointer" }}>✕</button>
+                </div>
+                {/* Прокручиваемый список */}
+                <div style={{ overflowY: "auto", padding: "12px 20px", flex: 1, scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg-3)" }}>
+                  {features.map(f => (
+                    <div key={f.title} style={{ display: "flex", gap: "12px", padding: "12px 0", borderBottom: "1px solid var(--cyber-border)" }}>
+                      <div style={{ flexShrink: 0, width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--cyber-border)" }}>
+                        <Icon name={f.icon} size={18} style={{ color: "var(--cyber-green)" }} />
+                      </div>
+                      <div>
+                        <div className="font-orbitron text-sm font-bold" style={{ color: "var(--cyber-text)", marginBottom: 3 }}>{f.title}</div>
+                        <div className="font-mono text-xs" style={{ color: "var(--cyber-text-dim)", lineHeight: 1.5 }}>{f.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Кнопка */}
+                <div style={{ padding: "14px 20px", borderTop: "1px solid var(--cyber-border)", flexShrink: 0 }}>
+                  <button onClick={onGetStarted} className="w-full py-3 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)] transition-all">
+                    НАЧАТЬ БЕСПЛАТНО →
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="mt-6 flex items-center justify-center gap-6 font-mono text-[10px] text-[var(--cyber-text-dim)] animate-fade-in-up">
             <span>✓ Бесплатная регистрация</span>
             <span>✓ Т-Банк Open API</span>
