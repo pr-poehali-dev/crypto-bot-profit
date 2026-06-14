@@ -3209,43 +3209,33 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 
       {/* История сделок */}
       {activeTab === "history" && (
-        <div className="animate-fade-in-up space-y-2">
+        <div className="space-y-2 animate-fade-in-up">
           <div className="section-label px-1">ИСТОРИЯ СДЕЛОК · {history.length} записей</div>
-          {history.length === 0 ? (
-            <div className="cyber-card rounded-none p-8 text-center text-[var(--cyber-text-dim)] font-mono text-xs">
-              Сделок ещё не было — запусти скальпер чтобы начать торговлю
+          {history.length === 0 && (
+            <div className="cyber-card rounded-none p-8 text-center">
+              <div className="font-mono text-xs" style={{ color: "var(--cyber-text-dim)" }}>Сделок пока нет</div>
             </div>
-          ) : (
-            history.map(t => {
-              const isProfit = (t.pnl ?? 0) >= 0;
-              const isClosed = t.status === "closed";
-              const statusColor = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
-              return (
-                <div key={t.id} className="cyber-card rounded-none p-3"
-                  style={{ borderLeft: `2px solid ${statusColor}` }}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</span>
-                      <span className="font-mono text-[10px] px-1.5 py-0.5" style={{ background: `${statusColor}22`, color: statusColor }}>
-                        {isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "● ОТКРЫТА"}
-                      </span>
-                    </div>
-                    <span className={`font-orbitron text-sm font-bold ${isProfit ? "neon-text" : "loss"}`}>
-                      {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽` : "—"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-mono text-[var(--cyber-text-dim)]">
-                    <div className="flex gap-3">
-                      <span>Куп: <span className="text-[var(--cyber-text)]">{t.buy_price?.toLocaleString("ru-RU")} ₽</span></span>
-                      {t.sell_price && <span>Прод: <span className="text-[var(--cyber-text)]">{Number(t.sell_price).toLocaleString("ru-RU")} ₽</span></span>}
-                      {t.pnl_pct != null && <span className={t.pnl_pct >= 0 ? "profit" : "loss"}>{t.pnl_pct >= 0 ? "+" : ""}{Number(t.pnl_pct).toFixed(2)}%</span>}
-                    </div>
-                    <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
-                  </div>
-                </div>
-              );
-            })
           )}
+          {history.length > 0 && history.map((t, idx) => {
+            const pnl = t.pnl ?? 0;
+            const isProfit = pnl >= 0;
+            const isClosed = t.status === "closed";
+            const col = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
+            return (
+              <div key={t.id ?? idx} className="cyber-card rounded-none p-3" style={{ borderLeft: `2px solid ${col}` }}>
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-sm font-bold" style={{ color: "var(--cyber-text)" }}>{t.ticker}</span>
+                  <span className="font-orbitron text-sm font-bold" style={{ color: col }}>
+                    {t.pnl != null ? `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ₽` : "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between mt-1 font-mono text-[10px]" style={{ color: "var(--cyber-text-dim)" }}>
+                  <span>{isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "● ОТКРЫТА"}</span>
+                  <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
