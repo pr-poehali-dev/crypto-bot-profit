@@ -4333,6 +4333,151 @@ function BingXPage() {
   );
 }
 
+/* ===== HISTORY PAGE ===== */
+function HistoryPage() {
+  const [trades, setTrades] = useState<{id:number;ticker:string;buy_price:number;sell_price:number|null;pnl:number|null;pnl_pct:number|null;status:string;opened_at:string}[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    authFetch(`${SCALPER_URL}?action=history`)
+      .then(r => r.json())
+      .then(d => { if (d.trades) setTrades(d.trades); })
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="space-y-3 animate-fade-in-up">
+      <div className="flex items-center gap-2">
+        <Icon name="History" size={15} className="neon-text" />
+        <div className="font-orbitron text-sm font-bold neon-text">ИСТОРИЯ СДЕЛОК</div>
+        {!loading && <span className="font-mono text-xs text-[var(--cyber-text-dim)]">· {trades.length} записей</span>}
+      </div>
+
+      {loading && (
+        <div className="cyber-card rounded-none p-8 text-center">
+          <div className="w-6 h-6 border-2 border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Загрузка...</div>
+        </div>
+      )}
+
+      {!loading && trades.length === 0 && (
+        <div className="cyber-card rounded-none p-8 text-center">
+          <Icon name="History" size={32} className="mx-auto mb-3 opacity-30" style={{ color: "var(--cyber-text-dim)" }} />
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Сделок ещё не было — запусти скальпер чтобы начать</div>
+        </div>
+      )}
+
+      {!loading && trades.map(t => {
+        const isProfit = (t.pnl ?? 0) >= 0;
+        const isClosed = t.status === "closed";
+        const statusColor = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
+        return (
+          <div key={t.id} className="cyber-card rounded-none p-3" style={{ borderLeft: `2px solid ${statusColor}` }}>
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</span>
+                <span className="font-mono text-[10px] px-1.5 py-0.5" style={{ background: `${statusColor}22`, color: statusColor }}>
+                  {isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "● ОТКРЫТА"}
+                </span>
+              </div>
+              <span className={`font-orbitron text-sm font-bold ${isProfit ? "neon-text" : "loss"}`}>
+                {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽` : "—"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-mono text-[var(--cyber-text-dim)]">
+              <div className="flex gap-3 flex-wrap">
+                <span>Купил: <span className="text-[var(--cyber-text)]">{t.buy_price?.toLocaleString("ru-RU")} ₽</span></span>
+                {t.sell_price != null && <span>Продал: <span className="text-[var(--cyber-text)]">{Number(t.sell_price).toLocaleString("ru-RU")} ₽</span></span>}
+                {t.pnl_pct != null && <span className={t.pnl_pct >= 0 ? "profit" : "loss"}>{t.pnl_pct >= 0 ? "+" : ""}{Number(t.pnl_pct).toFixed(2)}%</span>}
+              </div>
+              <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ===== PORTFOLIO PAGE ===== */
+function PortfolioPage() {
+  const [positions, setPositions] = useState<{figi:string;ticker:string;lots:number;avg_price:number;current_price:number;pnl:number;pnl_pct:number}[]>([]);
+  const [balance, setBalance] = useState<number|null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    authFetch(`${TBANK_URL}?action=portfolio`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.positions) setPositions(d.positions);
+        if (d.balance != null) setBalance(d.balance);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const totalPnl = positions.reduce((s, p) => s + (p.pnl ?? 0), 0);
+
+  return (
+    <div className="space-y-4 animate-fade-in-up">
+      <div className="flex items-center gap-2 mb-1">
+        <Icon name="PieChart" size={15} className="neon-text-cyan" />
+        <div className="font-orbitron text-sm font-bold neon-text-cyan">ПОРТФЕЛЬ Т-БАНК</div>
+      </div>
+
+      {balance != null && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="cyber-card-glow rounded-none p-4 text-center">
+            <div className="font-orbitron text-xl font-black neon-text">{balance.toLocaleString("ru-RU")} ₽</div>
+            <div className="section-label mt-1">Свободные средства</div>
+          </div>
+          <div className="cyber-card-glow rounded-none p-4 text-center">
+            <div className={`font-orbitron text-xl font-black ${totalPnl >= 0 ? "neon-text" : "loss"}`}>
+              {totalPnl >= 0 ? "+" : ""}{totalPnl.toFixed(2)} ₽
+            </div>
+            <div className="section-label mt-1">Нереализованный P&L</div>
+          </div>
+        </div>
+      )}
+
+      {loading && (
+        <div className="cyber-card rounded-none p-8 text-center">
+          <div className="w-6 h-6 border-2 border-[var(--cyber-cyan)] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Загрузка портфеля...</div>
+        </div>
+      )}
+
+      {!loading && positions.length === 0 && (
+        <div className="cyber-card rounded-none p-8 text-center">
+          <Icon name="PieChart" size={32} className="mx-auto mb-3 opacity-30" style={{ color: "var(--cyber-text-dim)" }} />
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Открытых позиций нет — подключи токен Т-Банк в профиле</div>
+        </div>
+      )}
+
+      {!loading && positions.map((p, i) => {
+        const isPlus = (p.pnl ?? 0) >= 0;
+        return (
+          <div key={p.figi || i} className="cyber-card rounded-none p-3" style={{ borderLeft: `2px solid ${isPlus ? "var(--cyber-green)" : "var(--cyber-red)"}` }}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{p.ticker}</span>
+                <span className="font-mono text-[10px] text-[var(--cyber-text-dim)]">{p.lots} лот</span>
+              </div>
+              <span className={`font-orbitron text-sm font-bold ${isPlus ? "neon-text" : "loss"}`}>
+                {p.pnl >= 0 ? "+" : ""}{p.pnl?.toFixed(2)} ₽
+              </span>
+            </div>
+            <div className="flex justify-between font-mono text-[10px] text-[var(--cyber-text-dim)]">
+              <span>Ср. цена: <span className="text-[var(--cyber-text)]">{p.avg_price?.toLocaleString("ru-RU")} ₽</span></span>
+              <span>Тек. цена: <span className="text-[var(--cyber-text)]">{p.current_price?.toLocaleString("ru-RU")} ₽</span></span>
+              <span className={isPlus ? "profit" : "loss"}>{p.pnl_pct >= 0 ? "+" : ""}{p.pnl_pct?.toFixed(2)}%</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ===== GENERIC ===== */
 function GenericPage({ title, icon }: { title: string; icon: string }) {
   return (
