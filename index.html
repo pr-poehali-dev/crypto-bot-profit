@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
@@ -7,20 +7,52 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <meta name="description" content="КиберБот — автоматический торговый бот для Т-Банк Invest. Скальпинг, автотрейдинг, авто-продажа по % прямо с телефона."/>
+    <meta name="description" content="КиберБот — автоматический торговый бот для Т-Банк Invest. Скальпинг акций, автотрейдинг по RSI/EMA/MACD, авто-продажа портфеля. До 8 сделок в день, торговля с телефона."/>
+    <meta name="keywords" content="торговый бот, скальпинг, Т-Банк Invest, автотрейдинг, торговый робот, скальпер акции, RSI MACD, автоматическая торговля акциями, бот для тинькофф инвестиции"/>
     <meta name="author" content="КиберБот"/>
+    <meta name="robots" content="index, follow"/>
+    <meta name="theme-color" content="#0a1628"/>
+    <link rel="canonical" href="https://crypto-bot-profit.poehali.dev/"/>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230a1628'/%3E%3Cline x1='32' y1='6' x2='32' y2='14' stroke='%2300ff88' stroke-width='2.5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='5' r='3' fill='%2300ff88'/%3E%3Crect x='14' y='14' width='36' height='26' rx='5' fill='none' stroke='%2300ff88' stroke-width='2'/%3E%3Crect x='20' y='22' width='8' height='7' rx='2' fill='%2300ff88' opacity='.9'/%3E%3Crect x='36' y='22' width='8' height='7' rx='2' fill='%2300ff88' opacity='.9'/%3E%3Crect x='21' y='33' width='3' height='3' rx='1' fill='%2300d4ff'/%3E%3Crect x='26' y='33' width='3' height='3' rx='1' fill='%2300d4ff'/%3E%3Crect x='31' y='33' width='3' height='3' rx='1' fill='%2300d4ff'/%3E%3Crect x='36' y='33' width='3' height='3' rx='1' fill='%2300d4ff'/%3E%3Crect x='29' y='40' width='6' height='4' rx='1' fill='%2300ff88' opacity='.6'/%3E%3Crect x='16' y='44' width='32' height='16' rx='4' fill='none' stroke='%2300ff88' stroke-width='2'/%3E%3Ccircle cx='32' cy='52' r='3.5' fill='none' stroke='%2300d4ff' stroke-width='1.5'/%3E%3Ccircle cx='32' cy='52' r='1.5' fill='%2300d4ff'/%3E%3Crect x='6' y='45' width='8' height='3' rx='1.5' fill='%2300ff88' opacity='.7'/%3E%3Crect x='50' y='45' width='8' height='3' rx='1.5' fill='%2300ff88' opacity='.7'/%3E%3C/svg%3E">
-    <meta property="og:title" content="КиберБот — Крипто Автотрейдинг">
-    <meta property="og:description" content="Автоматический торговый бот для Т-Банк Invest. Скальпинг, автотрейдинг и авто-продажа портфеля по заданному %.">
+    <meta property="og:title" content="КиберБот — Автоматический торговый бот для Т-Банк Invest">
+    <meta property="og:description" content="Скальпинг акций, автотрейдинг по RSI/EMA/MACD, авто-продажа портфеля. До 8 сделок в день. Торгуй с телефона.">
     <meta property="og:type" content="website">
+    <meta property="og:url" content="https://crypto-bot-profit.poehali.dev/">
+    <meta property="og:locale" content="ru_RU">
+    <meta property="og:site_name" content="КиберБот">
     <meta property="og:image" content="https://cdn.poehali.dev/projects/8ac3f102-dc90-4d6c-b8ac-d238f3aa2ed1/files/59797163-eaa0-457b-8c0a-1a9a499836a8.jpg">
     <meta property="og:image:width" content="1024">
     <meta property="og:image:height" content="1024">
-    <meta property="og:image:alt" content="КиберБот — автоматический торговый бот для Т-Банк">
+    <meta property="og:image:alt" content="КиберБот — автоматический торговый бот для Т-Банк Invest">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="КиберБот — Крипто Автотрейдинг">
-    <meta name="twitter:description" content="Автоматический торговый бот для Т-Банк Invest. Скальпинг, автотрейдинг и авто-продажа портфеля.">
+    <meta name="twitter:title" content="КиберБот — Автоматический торговый бот">
+    <meta name="twitter:description" content="Скальпинг акций и автотрейдинг для Т-Банк Invest. До 8 сделок в день, торгуй с телефона.">
     <meta name="twitter:image" content="https://cdn.poehali.dev/projects/8ac3f102-dc90-4d6c-b8ac-d238f3aa2ed1/files/59797163-eaa0-457b-8c0a-1a9a499836a8.jpg">
+    <!-- JSON-LD структурированные данные для Google -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "КиберБот",
+      "description": "Автоматический торговый бот для Т-Банк Invest. Скальпинг акций, автотрейдинг по RSI/EMA/MACD, авто-продажа портфеля.",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Web, iOS, Android",
+      "url": "https://crypto-bot-profit.poehali.dev/",
+      "inLanguage": "ru",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "RUB"
+      },
+      "featureList": [
+        "Скальпинг акций Т-Банк Invest",
+        "Автотрейдинг по RSI EMA MACD",
+        "Авто-продажа портфеля по тейк-профиту и стоп-лоссу",
+        "До 8 сделок в день",
+        "Работа с мобильного телефона"
+      ]
+    }
+    </script>
 
     <!-- IMPORTANT: DO NOT REMOVE THIS SCRIPT TAG OR THIS COMMENT! -->
 

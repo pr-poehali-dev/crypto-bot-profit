@@ -78,10 +78,9 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
 
 def combo_signal(prices):
     """
-    Комбо-сигнал RSI + EMA + MACD.
-    BUY:  нужно 2 из 3 условий: RSI<45, EMA9>EMA21, MACD гистограмма растёт
-    SELL: нужно 2 из 3 условий: RSI>55, EMA9<EMA21, MACD гистограмма падает
-    Минимум 20 свечей (было 30 — слишком жёстко для российского рынка).
+    Комбо-сигнал RSI + EMA + MACD + моментум.
+    BUY:  RSI<48 И хотя бы 1 из (EMA-бычий, MACD растёт, моментум +)
+    SELL: RSI>55 И хотя бы 1 из (EMA-медвежий, MACD падает)
     Возвращает ('BUY'|'SELL'|'HOLD', rsi, macd_hist, ema_diff)
     """
     if len(prices) < 20: return "HOLD", 50.0, 0.0, 0.0
@@ -91,26 +90,28 @@ def combo_signal(prices):
     ema9_p  = calc_ema(prices[:-1], 9)
     ema21_p = calc_ema(prices[:-1], 21)
 
-    ema_bull       = ema9 > ema21
-    ema_cross_up   = ema9 > ema21 and ema9_p <= ema21_p
-    ema_cross_down = ema9 < ema21 and ema9_p >= ema21_p
+    ema_bull     = ema9 > ema21
+    ema_cross_up = ema9 > ema21 and ema9_p <= ema21_p
 
-    _, _, hist   = calc_macd(prices)   if len(prices) >= 35 else (0, 0, 0)
+    _, _, hist   = calc_macd(prices)      if len(prices) >= 35 else (0, 0, 0)
     _, _, hist_p = calc_macd(prices[:-1]) if len(prices) >= 36 else (0, 0, 0)
-    macd_grow = hist > hist_p
+    macd_grow = hist > hist_p and hist > 0  # MACD выше нуля и растёт
     macd_fall = hist < hist_p
 
-    # BUY: RSI перепродан + хотя бы ещё один сигнал
-    buy_conds  = [rsi_val < 45, ema_bull or ema_cross_up, macd_grow]
-    sell_conds = [rsi_val > 55, (not ema_bull) or ema_cross_down, macd_fall]
+    # Моментум: последние 3 свечи растут
+    momentum_up   = len(prices) >= 4 and prices[-1] > prices[-4]
+    momentum_down = len(prices) >= 4 and prices[-1] < prices[-4]
 
-    buy_score  = sum(buy_conds)
-    sell_score = sum(sell_conds)
+    # BUY: RSI в зоне перепроданности + поддержка тренда
+    buy_support  = sum([ema_bull or ema_cross_up, macd_grow, momentum_up])
+    sell_support = sum([(not ema_bull), macd_fall, momentum_down])
 
-    # Требуем 2 из 3 (было 3 из 5 — слишком редко)
-    if buy_score >= 2:    sig = "BUY"
-    elif sell_score >= 2: sig = "SELL"
-    else:                 sig = "HOLD"
+    if rsi_val < 48 and buy_support >= 1:
+        sig = "BUY"
+    elif rsi_val > 55 and sell_support >= 2:
+        sig = "SELL"
+    else:
+        sig = "HOLD"
 
     return sig, rsi_val, hist, round(ema9 - ema21, 4)
 
@@ -148,10 +149,13 @@ def score_instrument(figi, token):
     print(f"[score] figi={figi[-6:]} signal={signal} rsi={rsi_val:.1f} macd={macd_hist:.5f} ema_diff={ema_diff:.4f} vol={vm:.2f}")
 
     if signal == "BUY":
-        rsi_bonus  = max(0, (45 - rsi_val) * 2)
-        vol_bonus  = min(25, (vm - 1) * 15) if vm > 1 else 0
-        macd_bonus = min(15, abs(macd_hist) * 8000)
-        score = 50 + rsi_bonus + vol_bonus + macd_bonus
+        # RSI: чем ниже — тем лучше (перепроданность)
+        rsi_bonus  = max(0, (48 - rsi_val) * 2.5)   # до 30 баллов при RSI=36
+        # Объём: рост объёма подтверждает сигнал
+        vol_bonus  = min(20, (vm - 1) * 12) if vm > 1 else 0
+        # MACD: сила сигнала
+        macd_bonus = min(10, abs(macd_hist) * 6000)
+        score = 60 + rsi_bonus + vol_bonus + macd_bonus
     else:
         score = 0
 
@@ -369,7 +373,7 @@ def handler(event: dict, context) -> dict:
                 return resp({"ok": True, "sold": sold, "bought": [], "reason": "watchlist пустой"})
 
             all_inst   = json.loads(watchlist_rows[0]["value"])
-            sample     = random.sample(all_inst, min(20, len(all_inst)))
+            sample     = random.sample(all_inst, min(40, len(all_inst)))  # 40 вместо 20 — больше кандидатов
             account_id = acct0
             portfolio  = tb("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {"accountId": account_id, "currency": "RUB"}, token)
             free_cash  = money(portfolio.get("totalAmountCurrencies"))
@@ -377,21 +381,20 @@ def handler(event: dict, context) -> dict:
 
             print(f"[run_scalp] free_cash={free_cash:.0f} open_count={open_count} sample={len(sample)}")
 
-            if open_count >= 5:
-                return resp({"ok": True, "sold": sold, "bought": [], "reason": "Максимум 5 открытых позиций"})
+            if open_count >= 8:
+                return resp({"ok": True, "sold": sold, "bought": [], "reason": "Максимум 8 открытых позиций"})
             if free_cash < amount * 0.5:
                 return resp({"ok": True, "sold": sold, "bought": [], "reason": f"Мало свободных средств: {free_cash:.0f} ₽"})
 
             bought = []
             for inst in sample:
                 if free_cash < amount * 0.5: break
-                if open_count >= 5: break
+                if open_count >= 8: break
 
                 score, signal, rsi_val, macd_hist = score_instrument(inst["figi"], token)
                 print(f"[run_scalp] {inst['ticker']} score={score} signal={signal} rsi={rsi_val}")
 
-                # Порог снижен с 60 до 50 — даём больше возможностей
-                if score < 50 or signal != "BUY": continue
+                if score < 60 or signal != "BUY": continue  # порог 60 — качественные сигналы
 
                 lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [inst["figi"]]}, token)
                 price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0

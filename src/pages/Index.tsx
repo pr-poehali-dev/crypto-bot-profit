@@ -3163,7 +3163,7 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
       {/* Вкладки */}
       <div className="flex gap-2 animate-fade-in-up">
         {(["main", "history"] as const).map(t => (
-          <button key={t} onClick={() => setActiveTab(t)}
+          <button key={t} onClick={() => { setActiveTab(t); if (t === "history") loadHistory(); }}
             className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${activeTab === t ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] bg-[rgba(255,200,0,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
             {t === "main" ? "⚡ ТОРГОВЛЯ" : "📋 ИСТОРИЯ"}
           </button>
@@ -3285,45 +3285,42 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 
       {/* История сделок */}
       {activeTab === "history" && (
-        <div className="cyber-card rounded-none p-4 animate-fade-in-up">
-          <div className="section-label mb-3">ИСТОРИЯ СДЕЛОК СКАЛЬПЕРА</div>
+        <div className="animate-fade-in-up space-y-2">
+          <div className="section-label px-1">ИСТОРИЯ СДЕЛОК · {history.length} записей</div>
           {history.length === 0 ? (
-            <div className="text-center py-8 text-[var(--cyber-text-dim)] font-mono text-xs">Сделок ещё не было</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[var(--cyber-border)]">
-                    {["Тикер", "Купил", "Продал", "P&L", "P&L %", "Статус", "Дата"].map(h => (
-                      <th key={h} className="section-label text-left py-2 pr-3 text-[10px]">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.map((t, i) => (
-                    <tr key={t.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(255,200,0,0.02)]">
-                      <td className="font-mono text-sm font-bold text-[var(--cyber-text)] py-2 pr-3">{t.ticker}</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-3">{t.buy_price?.toLocaleString("ru-RU")} ₽</td>
-                      <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-3">{t.sell_price ? `${t.sell_price.toLocaleString("ru-RU")} ₽` : "—"}</td>
-                      <td className={`font-mono text-xs py-2 pr-3 font-semibold ${(t.pnl || 0) >= 0 ? "profit" : "loss"}`}>
-                        {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽` : "—"}
-                      </td>
-                      <td className={`font-mono text-xs py-2 pr-3 font-semibold ${(t.pnl_pct || 0) >= 0 ? "profit" : "loss"}`}>
-                        {t.pnl_pct != null ? `${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}%` : "—"}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-none ${t.status === "closed" ? (t.pnl != null && t.pnl >= 0 ? "bg-[rgba(0,255,136,0.15)] text-[var(--cyber-green)]" : "bg-[rgba(255,61,113,0.15)] text-[var(--cyber-red)]") : "bg-[rgba(255,200,0,0.15)] text-[var(--cyber-yellow)]"}`}>
-                          {t.status === "closed" ? (t.pnl != null && t.pnl >= 0 ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "ОТКРЫТА"}
-                        </span>
-                      </td>
-                      <td className="font-mono text-[10px] text-[var(--cyber-text-dim)] py-2 pr-3">
-                        {t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="cyber-card rounded-none p-8 text-center text-[var(--cyber-text-dim)] font-mono text-xs">
+              Сделок ещё не было — запусти скальпер чтобы начать торговлю
             </div>
+          ) : (
+            history.map(t => {
+              const isProfit = (t.pnl ?? 0) >= 0;
+              const isClosed = t.status === "closed";
+              const statusColor = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
+              return (
+                <div key={t.id} className="cyber-card rounded-none p-3"
+                  style={{ borderLeft: `2px solid ${statusColor}` }}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</span>
+                      <span className="font-mono text-[10px] px-1.5 py-0.5" style={{ background: `${statusColor}22`, color: statusColor }}>
+                        {isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "● ОТКРЫТА"}
+                      </span>
+                    </div>
+                    <span className={`font-orbitron text-sm font-bold ${isProfit ? "neon-text" : "loss"}`}>
+                      {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽` : "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-mono text-[var(--cyber-text-dim)]">
+                    <div className="flex gap-3">
+                      <span>Куп: <span className="text-[var(--cyber-text)]">{t.buy_price?.toLocaleString("ru-RU")} ₽</span></span>
+                      {t.sell_price && <span>Прод: <span className="text-[var(--cyber-text)]">{Number(t.sell_price).toLocaleString("ru-RU")} ₽</span></span>}
+                      {t.pnl_pct != null && <span className={t.pnl_pct >= 0 ? "profit" : "loss"}>{t.pnl_pct >= 0 ? "+" : ""}{Number(t.pnl_pct).toFixed(2)}%</span>}
+                    </div>
+                    <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       )}

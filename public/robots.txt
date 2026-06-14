@@ -12,3 +12,5 @@ Allow: /
 
 User-agent: *
 Allow: /
+
+Sitemap: https://crypto-bot-profit.poehali.dev/sitemap.xml
