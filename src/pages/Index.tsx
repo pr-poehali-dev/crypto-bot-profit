@@ -2954,15 +2954,17 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
   const [activeTab, setActiveTab] = useState<"main" | "history">("main");
 
   const loadStatus = useCallback(async () => {
-    const r = await authFetch(`${SCALPER_URL}?action=status`);
-    const d = await r.json();
-    if (!d.error) {
-      setScStatus(d);
-      setTargetPct(String(d.settings.target_pct));
-      setStopPct(String(d.settings.stop_pct));
-      setAmount(String(d.settings.amount));
-      if (d.settings.account_id) setAccountId(d.settings.account_id);
-    }
+    try {
+      const r = await authFetch(`${SCALPER_URL}?action=status`);
+      const d = await r.json();
+      if (!d.error) {
+        setScStatus(d);
+        if (d.settings?.target_pct) setTargetPct(String(d.settings.target_pct));
+        if (d.settings?.stop_pct) setStopPct(String(d.settings.stop_pct));
+        if (d.settings?.amount) setAmount(String(d.settings.amount));
+        if (d.settings?.account_id) setAccountId(d.settings.account_id);
+      }
+    } catch { /* ignore */ }
   }, []);
 
   const loadHistory = useCallback(async () => {
@@ -4793,13 +4795,6 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "history": return <HistoryPage />;
       case "portfolio": return <PortfolioPage />;
       case "positions": return <LivePositionsPage />;
-      case "scalper": return <ScalperPage
-        scalpEnabled={scalpEnabled} setScalpEnabled={setScalpEnabled}
-        scalpIntervalMin={scalpIntervalMin} setScalpIntervalMin={setScalpIntervalMin}
-        scalpCountdown={scalpCountdown} setScalpCountdown={setScalpCountdown}
-        scalpRunning={scalpRunning} triggerScalpCycle={triggerScalpCycle}
-        scalpMsg={scalpMsg}
-      />;
       case "referral": return <ReferralPage user={user} />;
       case "profile": return <ProfilePage user={user} />;
       case "api": return <ApiKeysPage />;
