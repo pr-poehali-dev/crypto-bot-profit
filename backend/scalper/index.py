@@ -255,26 +255,29 @@ def handler(event: dict, context) -> dict:
             lots = int(body.get("lots", 1))
             target_pct = float(body.get("target_pct", 1.0))
             stop_pct = float(body.get("stop_pct", 2.0))
+            # Размер лота и текущая цена — ДО отправки ордера
+            instr = tb("tinkoff.public.invest.api.contract.v1.InstrumentsService/GetInstrumentBy", {"idType": "INSTRUMENT_ID_TYPE_FIGI", "id": figi}, token)
+            lot_size = instr.get("instrument", {}).get("lot", 1)
+            lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [figi]}, token)
+            price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
+            if price <= 0:
+                return resp({"error": "Не удалось получить цену инструмента"}, 400)
+            # Добавляем 0.15% слипpage к buy_price — чтобы реальная цена исполнения не была выше записанной
+            buy_price_adj = round(price * 1.0015, 4)
             # Выставляем рыночный ордер
+            acct_id = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token).get("accounts", [{}])[0].get("id", "")
             order = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
-                "accountId": (tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token).get("accounts", [{}])[0].get("id", "")),
-                "figi": figi, "direction": "ORDER_DIRECTION_BUY",
+                "accountId": acct_id, "figi": figi, "direction": "ORDER_DIRECTION_BUY",
                 "quantity": lots, "orderType": "ORDER_TYPE_MARKET",
             }, token)
             order_id = order.get("orderId", "")
-            # Текущая цена
-            lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [figi]}, token)
-            price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
-            # Размер лота
-            instr = tb("tinkoff.public.invest.api.contract.v1.InstrumentsService/GetInstrumentBy", {"idType": "INSTRUMENT_ID_TYPE_FIGI", "id": figi}, token)
-            lot_size = instr.get("instrument", {}).get("lot", 1)
-            amount = price * lots * lot_size
-            # Записываем в БД
-            trade = db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-                (uid, figi, ticker, lots, price, amount, target_pct, stop_pct, order_id))
-            # Начисляем реферальный доход
+            amount = buy_price_adj * lots * lot_size
+            # Записываем в БД с учётом lot_size и скорректированной ценой
+            trade = db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, lot_size, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (uid, figi, ticker, lots, lot_size, buy_price_adj, round(amount, 2), target_pct, stop_pct, order_id))
             add_referral_earning(uid, amount, token)
-            return resp({"ok": True, "trade_id": trade[0]["id"] if trade else None, "price": price, "amount": amount, "order_id": order_id})
+            print(f"[buy] {ticker} price={price} buy_price_adj={buy_price_adj} lot_size={lot_size} lots={lots} amount={amount:.2f}")
+            return resp({"ok": True, "trade_id": trade[0]["id"] if trade else None, "price": buy_price_adj, "amount": round(amount, 2), "order_id": order_id})
 
         if action == "check_positions":
             # Проверить открытые позиции и продать если достигли target или stop
@@ -287,22 +290,25 @@ def handler(event: dict, context) -> dict:
                 lp = tb("tinkoff.public.invest.api.contract.v1.MarketDataService/GetLastPrices", {"figi": [trade["figi"]]}, token)
                 cur_price = money(lp.get("lastPrices", [{}])[0].get("price")) if lp.get("lastPrices") else 0
                 if cur_price <= 0: continue
-                buy_price = float(trade["buy_price"])
+                buy_price  = float(trade["buy_price"])
+                lot_size   = int(trade.get("lot_size") or 1)
                 change_pct = (cur_price - buy_price) / buy_price * 100
                 target = float(trade["target_pct"])
-                stop = float(trade["stop_pct"])
+                stop   = float(trade["stop_pct"])
+                print(f"[check_positions] {trade['ticker']} cur={cur_price} buy={buy_price} chg={change_pct:.2f}% target={target}% stop={stop}% lot_size={lot_size}")
                 should_sell = change_pct >= target or change_pct <= -stop
                 if should_sell:
                     order = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
                         "accountId": account_id, "figi": trade["figi"],
                         "direction": "ORDER_DIRECTION_SELL",
-                        "quantity": trade["lots"], "orderType": "ORDER_TYPE_MARKET",
+                        "quantity": int(trade["lots"]), "orderType": "ORDER_TYPE_MARKET",
                     }, token)
-                    pnl = (cur_price - buy_price) * trade["lots"] * 1  # упрощённо
-                    pnl_pct = change_pct
+                    pnl = round((cur_price - buy_price) * int(trade["lots"]) * lot_size, 2)
                     db(f"UPDATE {SCHEMA}.scalp_trades SET status='closed', sell_price=%s, pnl=%s, pnl_pct=%s, order_sell_id=%s, closed_at=NOW() WHERE id=%s",
-                       (cur_price, round(pnl, 2), round(pnl_pct, 4), order.get("orderId",""), trade["id"]))
-                    sold.append({"ticker": trade["ticker"], "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 2), "reason": "TARGET" if change_pct >= target else "STOP"})
+                       (cur_price, pnl, round(change_pct, 4), order.get("orderId",""), trade["id"]))
+                    reason = "TARGET" if change_pct >= target else "STOP"
+                    print(f"[check_positions] SOLD {trade['ticker']} reason={reason} pnl={pnl}")
+                    sold.append({"ticker": trade["ticker"], "pnl": pnl, "pnl_pct": round(change_pct, 2), "reason": reason})
             return resp({"ok": True, "checked": len(open_trades), "sold": sold})
 
         if action == "run_scalp":
@@ -337,10 +343,11 @@ def handler(event: dict, context) -> dict:
                     print(f"[run_scalp] {trade['ticker']} cur_price=0 — skip")
                     continue
                 buy_price  = float(trade["buy_price"])
+                lot_size   = int(trade.get("lot_size") or 1)
                 change_pct = (cur_price - buy_price) / buy_price * 100 if buy_price > 0 else 0
                 t_pct = float(trade["target_pct"])
                 s_pct = float(trade["stop_pct"])
-                print(f"[run_scalp] {trade['ticker']} cur={cur_price} buy={buy_price} chg={change_pct:.2f}% target={t_pct}% stop={s_pct}%")
+                print(f"[run_scalp] {trade['ticker']} cur={cur_price} buy={buy_price} chg={change_pct:.2f}% target={t_pct}% stop={s_pct}% lot_size={lot_size}")
 
                 if change_pct >= t_pct or change_pct <= -s_pct:
                     reason = "TARGET" if change_pct >= t_pct else "STOP"
@@ -349,10 +356,10 @@ def handler(event: dict, context) -> dict:
                         "direction": "ORDER_DIRECTION_SELL",
                         "quantity": int(trade["lots"]), "orderType": "ORDER_TYPE_MARKET",
                     }, token)
-                    pnl0 = round((cur_price - buy_price) * float(trade["lots"]), 2)
+                    pnl0 = round((cur_price - buy_price) * int(trade["lots"]) * lot_size, 2)
                     db(f"UPDATE {SCHEMA}.scalp_trades SET status='closed', sell_price=%s, pnl=%s, pnl_pct=%s, order_sell_id=%s, closed_at=NOW() WHERE id=%s",
                        (cur_price, pnl0, round(change_pct, 4), order0.get("orderId",""), trade["id"]))
-                    print(f"[run_scalp] SOLD {trade['ticker']} reason={reason} pnl={pnl0} order={order0}")
+                    print(f"[run_scalp] SOLD {trade['ticker']} reason={reason} pnl={pnl0}")
                     sold.append({"ticker": trade["ticker"], "pnl": pnl0, "pnl_pct": round(change_pct, 2), "reason": reason})
 
             # ── 2. Ищем новые точки входа ─────────────────────────────────
@@ -397,15 +404,19 @@ def handler(event: dict, context) -> dict:
                     print(f"[run_scalp] {inst['ticker']} cost={cost:.0f} > free={free_cash:.0f} — skip")
                     continue
 
+                # Слипpage +0.15% — buy_price чуть выше котировки, защита от мгновенной продажи в минус
+                buy_price_adj = round(price * 1.0015, 4)
+                cost_adj = round(buy_price_adj * lots * lot, 2)
+
                 order = tb("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", {
                     "accountId": account_id, "figi": inst["figi"],
                     "direction": "ORDER_DIRECTION_BUY", "quantity": lots, "orderType": "ORDER_TYPE_MARKET",
                 }, token)
-                print(f"[run_scalp] BUY {inst['ticker']} lots={lots} price={price} cost={cost:.0f} order={order}")
+                print(f"[run_scalp] BUY {inst['ticker']} lots={lots} price={price} buy_adj={buy_price_adj} lot_size={lot} cost={cost:.0f}")
 
-                db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                   (uid, inst["figi"], inst["ticker"], lots, price, round(cost,2), target_pct, stop_pct, order.get("orderId","")))
-                add_referral_earning(uid, cost, token)
+                db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, lot_size, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                   (uid, inst["figi"], inst["ticker"], lots, lot, buy_price_adj, cost_adj, target_pct, stop_pct, order.get("orderId","")))
+                add_referral_earning(uid, cost_adj, token)
                 free_cash  -= cost
                 open_count += 1
                 bought.append({"ticker": inst["ticker"], "score": score, "signal": signal, "rsi": rsi_val, "macd": macd_hist, "price": price, "lots": lots, "cost": round(cost,2)})
