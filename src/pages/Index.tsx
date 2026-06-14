@@ -5265,7 +5265,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
           overflowX: "hidden",
           WebkitOverflowScrolling: "touch",
           padding: isMobile ? "12px" : "20px",
-          paddingBottom: isMobile ? "calc(4.5rem + env(safe-area-inset-bottom, 12px))" : "20px",
+          paddingBottom: isMobile ? "calc(56px + env(safe-area-inset-bottom, 0px) + 16px)" : "20px",
         }}>{renderContent()}</main>
       </div>
 
