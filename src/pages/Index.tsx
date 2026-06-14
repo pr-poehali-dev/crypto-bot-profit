@@ -4373,68 +4373,63 @@ function HistoryPage() {
   const [error, setError] = useState<string|null>(null);
 
   useEffect(() => {
-    setError(null);
     authFetch(`${SCALPER_URL}?action=history`)
       .then(r => r.json())
-      .then(d => {
-        if (d.error) setError(d.error);
-        else if (Array.isArray(d.trades)) setTrades(d.trades);
-        else setTrades([]);
-      })
-      .catch(() => setError("Ошибка соединения с сервером"))
+      .then(d => { setTrades(Array.isArray(d.trades) ? d.trades : []); if (d.error) setError(d.error); })
+      .catch(() => setError("Ошибка соединения"))
       .finally(() => setLoading(false));
   }, []);
 
   return (
-    <div className="space-y-3 animate-fade-in-up">
-      <div className="flex items-center gap-2">
-        <Icon name="History" size={15} className="neon-text" />
-        <div className="font-orbitron text-sm font-bold neon-text">ИСТОРИЯ СДЕЛОК</div>
-        {!loading && <span className="font-mono text-xs text-[var(--cyber-text-dim)]">· {trades.length} записей</span>}
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon name="History" size={15} style={{ color: "var(--cyber-green)" }} />
+        <span style={{ fontFamily: "'Orbitron', monospace", fontSize: 13, fontWeight: "bold", color: "var(--cyber-green)" }}>ИСТОРИЯ СДЕЛОК</span>
+        {!loading && <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)" }}>· {trades.length} записей</span>}
       </div>
 
       {loading && (
-        <div className="cyber-card rounded-none p-8 text-center">
-          <div className="w-6 h-6 border-2 border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Загрузка...</div>
+        <div style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-border)", padding: "2rem", textAlign: "center" }}>
+          <div style={{ width: 24, height: 24, border: "2px solid var(--cyber-green)", borderTopColor: "transparent", borderRadius: "50%", margin: "0 auto 8px", animation: "spin 1s linear infinite" }} />
+          <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)" }}>Загрузка...</div>
         </div>
       )}
 
       {!loading && error && (
-        <div className="cyber-card rounded-none p-4 border border-[var(--cyber-red)]">
-          <div className="font-mono text-xs text-[var(--cyber-red)]">⚠ {error}</div>
+        <div style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-red)", padding: 12 }}>
+          <span style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-red)" }}>⚠ {error}</span>
         </div>
       )}
 
       {!loading && !error && trades.length === 0 && (
-        <div className="cyber-card rounded-none p-8 text-center">
-          <Icon name="History" size={32} className="mx-auto mb-3 opacity-30" style={{ color: "var(--cyber-text-dim)" }} />
-          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Сделок ещё не было — запусти скальпер во вкладке Т-Банк → Скальпинг</div>
+        <div style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-border)", padding: "2rem", textAlign: "center" }}>
+          <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)" }}>Сделок ещё не было — запусти скальпер во вкладке Т-Банк → Скальпинг</div>
         </div>
       )}
 
-      {!loading && !error && trades.map(t => {
-        const isProfit = (t.pnl ?? 0) >= 0;
+      {!loading && !error && trades.map((t, idx) => {
+        const pnl = t.pnl ?? 0;
+        const isProfit = pnl >= 0;
         const isClosed = t.status === "closed";
-        const statusColor = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
+        const col = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
         return (
-          <div key={t.id} className="cyber-card rounded-none p-3" style={{ borderLeft: `2px solid ${statusColor}` }}>
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker}</span>
-                <span className="font-mono text-[10px] px-1.5 py-0.5" style={{ background: `${statusColor}22`, color: statusColor }}>
+          <div key={t.id ?? idx} style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-border)", borderLeft: `3px solid ${col}`, padding: "10px 12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: "monospace", fontSize: 14, fontWeight: "bold", color: "var(--cyber-text)" }}>{t.ticker}</span>
+                <span style={{ fontFamily: "monospace", fontSize: 10, padding: "2px 6px", background: `${col}22`, color: col }}>
                   {isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "● ОТКРЫТА"}
                 </span>
               </div>
-              <span className={`font-orbitron text-sm font-bold ${isProfit ? "neon-text" : "loss"}`}>
-                {t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽` : "—"}
+              <span style={{ fontFamily: "'Orbitron', monospace", fontSize: 13, fontWeight: "bold", color: col }}>
+                {t.pnl != null ? `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ₽` : "—"}
               </span>
             </div>
-            <div className="flex items-center justify-between text-[10px] font-mono text-[var(--cyber-text-dim)]">
-              <div className="flex gap-3 flex-wrap">
-                <span>Купил: <span className="text-[var(--cyber-text)]">{t.buy_price?.toLocaleString("ru-RU")} ₽</span></span>
-                {t.sell_price != null && <span>Продал: <span className="text-[var(--cyber-text)]">{Number(t.sell_price).toLocaleString("ru-RU")} ₽</span></span>}
-                {t.pnl_pct != null && <span className={t.pnl_pct >= 0 ? "profit" : "loss"}>{t.pnl_pct >= 0 ? "+" : ""}{Number(t.pnl_pct).toFixed(2)}%</span>}
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: "monospace", fontSize: 10, color: "var(--cyber-text-dim)" }}>
+              <div style={{ display: "flex", gap: 12 }}>
+                <span>Купил: <span style={{ color: "var(--cyber-text)" }}>{t.buy_price?.toLocaleString("ru-RU")} ₽</span></span>
+                {t.sell_price != null && <span>Продал: <span style={{ color: "var(--cyber-text)" }}>{Number(t.sell_price).toLocaleString("ru-RU")} ₽</span></span>}
+                {t.pnl_pct != null && <span style={{ color: t.pnl_pct >= 0 ? "var(--cyber-green)" : "var(--cyber-red)" }}>{t.pnl_pct >= 0 ? "+" : ""}{Number(t.pnl_pct).toFixed(2)}%</span>}
               </div>
               <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
             </div>
