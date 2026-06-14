@@ -4589,14 +4589,16 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       {/* Features */}
       <div id="features" className="px-4 py-16 max-w-4xl mx-auto">
         <div className="font-orbitron text-2xl font-bold text-center neon-text-cyan mb-10">ВОЗМОЖНОСТИ</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {features.map(f => (
-            <div key={f.title} className="cyber-card rounded-none p-4 hover:border-[var(--cyber-green)] transition-all">
-              <Icon name={f.icon} size={24} className="mb-3" style={{ color: "var(--cyber-green)" }} />
-              <div className="font-orbitron text-sm font-bold text-[var(--cyber-text)] mb-1">{f.title}</div>
-              <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">{f.desc}</div>
-            </div>
-          ))}
+        <div className="overflow-y-auto max-h-[420px] pr-1" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg-3)" }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            {features.map(f => (
+              <div key={f.title} className="cyber-card rounded-none p-4 hover:border-[var(--cyber-green)] transition-all">
+                <Icon name={f.icon} size={24} className="mb-3" style={{ color: "var(--cyber-green)" }} />
+                <div className="font-orbitron text-sm font-bold text-[var(--cyber-text)] mb-1">{f.title}</div>
+                <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">{f.desc}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
