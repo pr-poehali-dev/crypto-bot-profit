@@ -1,29 +1,26 @@
 {
   "tests": [
     {
-      "name": "Методы оплаты",
+      "name": "OPTIONS CORS",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "GET status — статус платёжек",
       "method": "GET",
-      "path": "/?action=methods",
+      "path": "/?action=status",
       "expectedStatus": 200,
-      "expectedBody": {"deposit": {}, "withdraw": {}},
+      "expectedBody": {"robokassa": {}, "yookassa": {}, "plans": {}},
       "bodyMatcher": "partial"
     },
     {
-      "name": "Пополнение через карту (демо)",
+      "name": "POST create_payment — нет сессии",
       "method": "POST",
       "path": "/",
-      "body": {"type": "deposit", "method": "bank_card", "amount": 1000, "currency": "RUB"},
-      "expectedStatus": 200,
-      "expectedBody": {"success": true},
-      "bodyMatcher": "partial"
-    },
-    {
-      "name": "Вывод через ЮMoney (демо)",
-      "method": "POST",
-      "path": "/",
-      "body": {"type": "withdraw", "method": "yoomoney", "amount": 500, "currency": "RUB"},
-      "expectedStatus": 200,
-      "expectedBody": {"success": true},
+      "body": {"action": "create_payment", "plan": "basic", "provider": "robokassa"},
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Не авторизован"},
       "bodyMatcher": "partial"
     }
   ]

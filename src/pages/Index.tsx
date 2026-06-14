@@ -2955,6 +2955,9 @@ function ProfilePage({ user }: { user: { username: string; role: string } }) {
         )}
       </div>
 
+      {/* Подписка */}
+      {profile && <SubscribeButton currentPlan={profile.plan || "free"} />}
+
       {/* Токены */}
       {msg && <div className={`p-3 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
       <div className="cyber-card rounded-none p-5 space-y-3 animate-fade-in-up">
@@ -3328,6 +3331,266 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
   );
 }
 
+/* ===== PAYMENT GATEWAY PANEL (admin) ===== */
+function PaymentGatewayPanel() {
+  const [status, setStatus] = useState<{
+    robokassa: { connected: boolean; test_mode: boolean; login: string };
+    yookassa:  { connected: boolean; shop_id: string };
+    plans:     Record<string, { name: string; price_rub: number; desc: string }>;
+  } | null>(null);
+  const [webhookCopied, setWebhookCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    authFetch(`${PAYMENT_URL}?action=status`).then(r => r.json()).then(d => {
+      if (d.robokassa) setStatus(d);
+    });
+  }, []);
+
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setWebhookCopied(key);
+    setTimeout(() => setWebhookCopied(null), 2000);
+  };
+
+  const RK_WEBHOOK  = `${PAYMENT_URL}?action=status`; // placeholder — реальный в POST body action=robokassa_webhook
+  const RK_RESULT   = PAYMENT_URL.replace("?", "") + " (POST body: action=robokassa_webhook)";
+  const YK_WEBHOOK  = PAYMENT_URL.replace("?", "") + " (POST body: action=yookassa_webhook)";
+
+  return (
+    <div className="cyber-card rounded-none p-4 border border-[rgba(0,212,255,0.2)] animate-fade-in-up space-y-4">
+      <div className="flex items-center gap-2">
+        <Icon name="CreditCard" size={14} className="neon-text-cyan" />
+        <div className="section-label text-[var(--cyber-cyan)]">ПОДКЛЮЧЕНИЕ ПЛАТЁЖНЫХ СИСТЕМ (ADMIN)</div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+        {/* Robokassa */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${status?.robokassa.connected ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-text-dim)]"}`} />
+            <span className="font-orbitron text-xs font-bold text-[var(--cyber-text)]">ROBOKASSA</span>
+            {status?.robokassa.connected && (
+              <span className={`font-mono text-[10px] px-1.5 py-0.5 ${status.robokassa.test_mode ? "text-[var(--cyber-yellow)] border border-[rgba(255,200,0,0.3)]" : "text-[var(--cyber-green)] border border-[rgba(0,255,136,0.3)]"}`}>
+                {status.robokassa.test_mode ? "ТЕСТ" : "БОЕВОЙ"}
+              </span>
+            )}
+          </div>
+
+          {status?.robokassa.connected ? (
+            <div className="font-mono text-xs text-[var(--cyber-green)] p-2 border border-[rgba(0,255,136,0.2)]">
+              ✓ Подключён · Логин: {status.robokassa.login}
+            </div>
+          ) : (
+            <div className="font-mono text-xs text-[var(--cyber-text-dim)] p-2 border border-[var(--cyber-border)] leading-relaxed">
+              Не подключён. Добавь секреты:<br/>
+              <span className="text-[var(--cyber-yellow)]">ROBOKASSA_LOGIN, ROBOKASSA_PASS1, ROBOKASSA_PASS2</span>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="section-label text-[10px]">НАСТРОЙКИ В ЛИЧНОМ КАБИНЕТЕ ROBOKASSA:</div>
+            {[
+              { label: "ResultURL (вебхук)", val: PAYMENT_URL, key: "rk_result" },
+              { label: "SuccessURL",         val: "https://crypto-bot-profit.poehali.dev/", key: "rk_success" },
+              { label: "FailURL",            val: "https://crypto-bot-profit.poehali.dev/", key: "rk_fail" },
+            ].map(item => (
+              <div key={item.key}>
+                <div className="section-label text-[9px] mb-0.5">{item.label}</div>
+                <div className="flex items-center gap-1">
+                  <div className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] px-2 py-1 font-mono text-[9px] text-[var(--cyber-cyan)] truncate">
+                    {item.val}
+                  </div>
+                  <button onClick={() => copy(item.val, item.key)}
+                    className="px-2 py-1 border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all font-mono text-[9px] flex-shrink-0">
+                    {webhookCopied === item.key ? "✓" : "copy"}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div className="font-mono text-[9px] text-[var(--cyber-text-dim)] leading-relaxed p-2 border border-[var(--cyber-border)]">
+              В настройках Robokassa установи метод отправки ResultURL: <span className="text-[var(--cyber-yellow)]">POST</span>.
+              В поле "Метод кодирования" выбери <span className="text-[var(--cyber-yellow)]">MD5</span>.
+            </div>
+          </div>
+        </div>
+
+        {/* ЮKassa */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${status?.yookassa.connected ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-text-dim)]"}`} />
+            <span className="font-orbitron text-xs font-bold text-[var(--cyber-text)]">ЮKASSA</span>
+          </div>
+
+          {status?.yookassa.connected ? (
+            <div className="font-mono text-xs text-[var(--cyber-green)] p-2 border border-[rgba(0,255,136,0.2)]">
+              ✓ Подключён · Shop ID: {status.yookassa.shop_id}
+            </div>
+          ) : (
+            <div className="font-mono text-xs text-[var(--cyber-text-dim)] p-2 border border-[var(--cyber-border)] leading-relaxed">
+              Не подключён. Добавь секреты:<br/>
+              <span className="text-[var(--cyber-yellow)]">YOOKASSA_SHOP_ID, YOOKASSA_SECRET_KEY</span>
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <div className="section-label text-[10px]">НАСТРОЙКИ В ЛИЧНОМ КАБИНЕТЕ ЮKASSA:</div>
+            {[
+              { label: "URL для уведомлений (webhook)", val: PAYMENT_URL, key: "yk_webhook" },
+              { label: "URL возврата",                  val: "https://crypto-bot-profit.poehali.dev/", key: "yk_return" },
+            ].map(item => (
+              <div key={item.key}>
+                <div className="section-label text-[9px] mb-0.5">{item.label}</div>
+                <div className="flex items-center gap-1">
+                  <div className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] px-2 py-1 font-mono text-[9px] text-[var(--cyber-cyan)] truncate">
+                    {item.val}
+                  </div>
+                  <button onClick={() => copy(item.val, item.key)}
+                    className="px-2 py-1 border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all font-mono text-[9px] flex-shrink-0">
+                    {webhookCopied === item.key ? "✓" : "copy"}
+                  </button>
+                </div>
+              </div>
+            ))}
+            <div className="font-mono text-[9px] text-[var(--cyber-text-dim)] leading-relaxed p-2 border border-[var(--cyber-border)]">
+              В ЮKassa: Настройки → HTTP-уведомления → добавь URL выше.
+              Выбери события: <span className="text-[var(--cyber-yellow)]">payment.succeeded</span>.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Тарифы */}
+      {status?.plans && (
+        <div>
+          <div className="section-label text-[10px] mb-2">ТЕКУЩИЕ ТАРИФЫ</div>
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(status.plans).map(([key, p]) => (
+              <div key={key} className="border border-[var(--cyber-border)] p-2 font-mono text-xs">
+                <span className="text-[var(--cyber-cyan)] font-bold">{p.name}</span>
+                <span className="text-[var(--cyber-text-dim)]"> — </span>
+                <span className="text-[var(--cyber-text)]">{p.price_rub} ₽/мес</span>
+                <div className="text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{p.desc}</div>
+              </div>
+            ))}
+          </div>
+          <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-2">
+            Цены можно изменить выше в блоке «Монетизация платформы».
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===== SUBSCRIBE BUTTON (для пользователей) ===== */
+function SubscribeButton({ currentPlan }: { currentPlan: string }) {
+  const [open, setOpen]     = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [provider, setProvider] = useState<"robokassa" | "yookassa">("robokassa");
+  const [payStatus, setPayStatus] = useState<{ robokassa: boolean; yookassa: boolean }>({ robokassa: false, yookassa: false });
+  const [plans, setPlans]   = useState<Record<string, { name: string; price_rub: number; desc: string }>>({});
+  const [msg, setMsg]       = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    authFetch(`${PAYMENT_URL}?action=status`).then(r => r.json()).then(d => {
+      if (d.plans)     setPlans(d.plans);
+      if (d.robokassa) setPayStatus({ robokassa: d.robokassa.connected, yookassa: d.yookassa.connected });
+    });
+  }, []);
+
+  const pay = async (plan: string) => {
+    if (!payStatus.robokassa && !payStatus.yookassa) {
+      setMsg({ text: "Платёжные системы не подключены. Обратитесь к администратору.", ok: false });
+      return;
+    }
+    setLoading(true);
+    const r = await authFetch(PAYMENT_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "create_payment", plan, provider, return_url: window.location.href }),
+    });
+    const d = await r.json();
+    setLoading(false);
+    if (d.ok && d.payment_url) {
+      window.location.href = d.payment_url;
+    } else {
+      setMsg({ text: d.error || "Ошибка создания платежа", ok: false });
+      setTimeout(() => setMsg(null), 4000);
+    }
+  };
+
+  if (currentPlan !== "free") return (
+    <div className="cyber-card rounded-none p-3 border border-[rgba(0,255,136,0.2)] font-mono text-xs text-center">
+      <span className="neon-text font-bold">✓ {currentPlan.toUpperCase()}</span>
+      <span className="text-[var(--cyber-text-dim)]"> — подписка активна</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      <button onClick={() => setOpen(!open)}
+        className="w-full py-3 font-orbitron text-xs font-bold border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all flex items-center justify-center gap-2">
+        <Icon name="Star" size={13} /> ОФОРМИТЬ ПОДПИСКУ
+      </button>
+
+      {open && (
+        <div className="cyber-card rounded-none p-4 space-y-3 animate-fade-in-up">
+          {msg && <div className={`p-2 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+
+          {/* Выбор провайдера */}
+          {(payStatus.robokassa || payStatus.yookassa) && (
+            <div>
+              <div className="section-label text-[10px] mb-1.5">СПОСОБ ОПЛАТЫ</div>
+              <div className="flex gap-2">
+                {payStatus.robokassa && (
+                  <button onClick={() => setProvider("robokassa")}
+                    className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all ${provider === "robokassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                    Robokassa
+                  </button>
+                )}
+                {payStatus.yookassa && (
+                  <button onClick={() => setProvider("yookassa")}
+                    className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all ${provider === "yookassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                    ЮKassa
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Тарифы */}
+          <div className="section-label text-[10px]">ВЫБЕРИ ТАРИФ</div>
+          <div className="space-y-2">
+            {Object.entries(plans).map(([key, p]) => (
+              <button key={key} onClick={() => pay(key)} disabled={loading || (!payStatus.robokassa && !payStatus.yookassa)}
+                className="w-full flex items-center justify-between p-3 border border-[var(--cyber-border)] hover:border-[var(--cyber-cyan)] rounded-none transition-all disabled:opacity-40 text-left">
+                <div>
+                  <div className="font-orbitron text-xs font-bold text-[var(--cyber-text)]">{p.name}</div>
+                  <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{p.desc}</div>
+                </div>
+                <div className="text-right flex-shrink-0 ml-3">
+                  <div className="font-orbitron text-sm font-bold neon-text-cyan">{p.price_rub} ₽</div>
+                  <div className="font-mono text-[9px] text-[var(--cyber-text-dim)]">/мес</div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {!payStatus.robokassa && !payStatus.yookassa && (
+            <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] p-2 border border-[var(--cyber-border)] text-center">
+              Платёжные системы временно недоступны.<br/>Для оплаты обратитесь к администратору.
+            </div>
+          )}
+
+          <div className="font-mono text-[9px] text-[var(--cyber-text-dim)] text-center">
+            После оплаты подписка активируется автоматически
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ===== REFERRAL PAGE ===== */
 function ReferralPage({ user }: { user: { username: string; role: string } }) {
   const [stats, setStats] = useState<{ ref_code: string; ref_count: number; refs: { id: number; username: string; joined: string }[]; total_earned: number } | null>(null);
@@ -3519,6 +3782,11 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── ADMIN: Подключение платёжек ── */}
+      {user.role === "admin" && (
+        <PaymentGatewayPanel />
       )}
 
       {/* ── ADMIN: Все пользователи + подписки ── */}
