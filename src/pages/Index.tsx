@@ -4989,13 +4989,12 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
 
-  // Топ-6 разделов для нижней панели мобиле
   const BOTTOM_NAV = [
-    { id: "dashboard",  icon: "LayoutDashboard", label: "Главная" },
-    { id: "tbank",      icon: "Building2",        label: "Т-Банк" },
-    { id: "autobot",    icon: "Bot",              label: "Автобот" },
-    { id: "history",    icon: "History",          label: "История" },
-    { id: "settings_menu", icon: "Menu",          label: "Меню" },
+    { id: "dashboard",     icon: "LayoutDashboard", label: "Главная" },
+    { id: "tbank",         icon: "Building2",       label: "Т-Банк" },
+    { id: "autobot",       icon: "Bot",             label: "Автобот" },
+    { id: "portfolio",     icon: "PieChart",        label: "Портфель" },
+    { id: "settings_menu", icon: "Menu",            label: "Ещё" },
   ];
 
   return (
@@ -5041,13 +5040,14 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         </div>
 
         {/* Навигация */}
-        <nav className="py-2 flex-1 overflow-y-auto">
+        <nav className="py-1 flex-1 overflow-y-auto">
           {NAV_ITEMS.map(item => (
             <button key={item.id}
               onClick={() => handleNavClick(item.id)}
               className={`nav-item w-full text-left ${activeSection === item.id ? "active" : ""}`}
+              style={{ minHeight: sidebarOpen ? 40 : 44 }}
               title={!sidebarOpen ? item.label : undefined}>
-              <Icon name={item.icon} size={16} fallback="Circle" />
+              <Icon name={item.icon} size={sidebarOpen ? 16 : 18} fallback="Circle" />
               {sidebarOpen && <span className="text-sm">{item.label}</span>}
             </button>
           ))}
@@ -5081,20 +5081,17 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
           style={{ background: "var(--cyber-surface)", borderColor: "var(--cyber-border)" }}>
           <div className="flex items-center gap-2 md:gap-4 min-w-0">
-            {/* На мобиле — лого, на десктопе — кнопка меню */}
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="cyber-btn p-1.5 rounded-none flex-shrink-0 md:flex hidden">
+            {/* Кнопка меню — на мобиле и десктопе */}
+            <button onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex-shrink-0 flex items-center justify-center w-8 h-8 border rounded-none transition-all"
+              style={{ borderColor: "var(--cyber-border)", color: "var(--cyber-text-dim)" }}>
               <Icon name="Menu" size={16} />
             </button>
-            <div className="w-7 h-7 md:hidden flex items-center justify-center flex-shrink-0"
-              style={{ border: "1px solid var(--cyber-green)", boxShadow: "0 0 8px rgba(0,255,136,0.2)" }}>
-              <Icon name="Bot" size={14} style={{ color: "var(--cyber-green)" }} />
-            </div>
             <div className="font-orbitron text-xs md:text-sm font-semibold text-[var(--cyber-text)] truncate">
-              {activeNav?.label?.toUpperCase()}
+              {activeNav?.label?.toUpperCase() ?? "КИБЕРБОТ"}
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* Индикаторы ботов — компактные на мобиле */}
             {botEnabled && (
               <button onClick={() => setActiveSection("autobot")}
                 className="flex items-center gap-1 px-1.5 py-1 border border-[var(--cyber-green)] rounded-none">
@@ -5118,6 +5115,12 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
                 {scalpMsg.text}
               </div>
             )}
+            {/* Профиль — только на мобиле в хедере */}
+            <button onClick={() => handleNavClick("profile")}
+              className="md:hidden flex items-center justify-center w-8 h-8 border rounded-none transition-all"
+              style={{ borderColor: activeSection === "profile" ? "var(--cyber-green)" : "var(--cyber-border)", color: activeSection === "profile" ? "var(--cyber-green)" : "var(--cyber-text-dim)" }}>
+              <Icon name="User" size={15} />
+            </button>
             <div className="hidden md:block font-mono text-xs text-[var(--cyber-text-dim)]">
               {time.toLocaleTimeString("ru-RU")}
             </div>
@@ -5135,29 +5138,30 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
           borderColor: "var(--cyber-border)",
           paddingBottom: "env(safe-area-inset-bottom, 0px)",
         }}>
-        <div className="flex items-center">
+        <div className="flex items-stretch">
           {BOTTOM_NAV.map(item => {
             const isActive = activeSection === item.id && item.id !== "settings_menu";
+            const hasBadge = (item.id === "autobot" && botEnabled) || (item.id === "tbank" && scalpEnabled);
+            const badgeColor = item.id === "autobot" ? "var(--cyber-green)" : "var(--cyber-yellow)";
             return (
               <button key={item.id}
                 onClick={() => item.id === "settings_menu" ? setSidebarOpen(true) : handleNavClick(item.id)}
-                className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-all active:scale-95"
-                style={{ color: isActive ? "var(--cyber-green)" : "var(--cyber-text-dim)" }}>
-                {/* Активная полоска сверху */}
-                <div className="w-full h-0.5 mb-0.5" style={{
-                  background: isActive ? "var(--cyber-green)" : "transparent",
-                  boxShadow: isActive ? "0 0 6px var(--cyber-green)" : "none",
-                }} />
-                <div className="relative">
-                  <Icon name={item.icon} size={22} fallback="Circle" />
-                  {item.id === "autobot" && botEnabled && (
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--cyber-green)] animate-pulse border border-[var(--cyber-surface)]" />
-                  )}
-                  {item.id === "scalper" && scalpEnabled && (
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--cyber-yellow)] animate-pulse border border-[var(--cyber-surface)]" />
+                className="flex-1 flex flex-col items-center justify-center gap-0.5 transition-all active:scale-95"
+                style={{
+                  color: isActive ? "var(--cyber-green)" : "var(--cyber-text-dim)",
+                  minHeight: 56,
+                  borderTop: isActive ? `2px solid var(--cyber-green)` : "2px solid transparent",
+                  boxShadow: isActive ? "0 -2px 8px rgba(0,255,136,0.3)" : "none",
+                  background: isActive ? "rgba(0,255,136,0.04)" : "transparent",
+                }}>
+                <div className="relative mt-1">
+                  <Icon name={item.icon} size={20} fallback="Circle" />
+                  {hasBadge && (
+                    <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full border border-[var(--cyber-surface)] animate-pulse"
+                      style={{ background: badgeColor }} />
                   )}
                 </div>
-                <span className="text-[10px] font-mono leading-none">{item.label}</span>
+                <span className="text-[9px] font-mono leading-none pb-1">{item.label}</span>
               </button>
             );
           })}
