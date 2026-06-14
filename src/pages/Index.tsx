@@ -161,7 +161,12 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
           )}
 
           {tab === "forgot" && (
-            <AuthInput label="Email (указанный при регистрации)" value={email} onChange={setEmail} placeholder="your@email.com" autoComplete="email" />
+            <>
+              <AuthInput label="Email (указанный при регистрации)" value={email} onChange={setEmail} placeholder="your@email.com" autoComplete="email" />
+              <div className="p-2.5 border border-[var(--cyber-yellow)] font-mono text-[10px] leading-relaxed" style={{ background: "rgba(255,170,0,0.05)", color: "var(--cyber-text-dim)" }}>
+                ⚠ Сброс пароля работает только если при регистрации был указан email. Если email не добавлен — обратись в поддержку <span style={{ color: "var(--cyber-cyan)" }}>poehali.dev/help</span>
+              </div>
+            </>
           )}
 
           {tab === "register" && (<>
