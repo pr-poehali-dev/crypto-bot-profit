@@ -2938,6 +2938,44 @@ const SCALP_INTERVALS = [
   { val: 60, label: "1 час" },
 ];
 
+/* ===== SCALP HISTORY ===== */
+function ScalpHistory({ trades }: { trades: { id: number; ticker: string; buy_price: number; sell_price: number; pnl: number; pnl_pct: number; status: string; opened_at: string }[] }) {
+  if (trades.length === 0) {
+    return (
+      <div style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-border)", padding: "2rem", textAlign: "center" }}>
+        <div style={{ fontFamily: "monospace", fontSize: "12px", color: "var(--cyber-text-dim)" }}>Сделок пока нет</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      <div style={{ fontFamily: "monospace", fontSize: "10px", color: "var(--cyber-text-dim)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+        ИСТОРИЯ СДЕЛОК · {trades.length} записей
+      </div>
+      {trades.map((t, idx) => {
+        const pnl = t.pnl ?? 0;
+        const isProfit = pnl >= 0;
+        const isClosed = t.status === "closed";
+        const col = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
+        return (
+          <div key={t.id ?? idx} style={{ background: "var(--cyber-surface)", border: "1px solid var(--cyber-border)", borderLeft: `3px solid ${col}`, padding: "10px 12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "monospace", fontSize: "14px", fontWeight: "bold", color: "var(--cyber-text)" }}>{t.ticker}</span>
+              <span style={{ fontFamily: "'Orbitron', monospace", fontSize: "13px", fontWeight: "bold", color: col }}>
+                {t.pnl != null ? `${pnl >= 0 ? "+" : ""}${Number(pnl).toFixed(2)} ₽` : "—"}
+              </span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px", fontFamily: "monospace", fontSize: "10px", color: "var(--cyber-text-dim)" }}>
+              <span>{isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП-ЛОСС") : "● ОТКРЫТА"}</span>
+              <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ===== SCALPER PAGE ===== */
 function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalpIntervalMin, scalpCountdown, setScalpCountdown, scalpRunning, triggerScalpCycle, scalpMsg }: ScalperPageProps) {
   const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string }[]; trades_today: number; pnl_today: number; accounts: { id: string; name: string }[]; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean; account_id: string } } | null>(null);
@@ -3088,12 +3126,14 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 
       {/* Вкладки */}
       <div className="flex gap-2 animate-fade-in-up">
-        {(["main", "history"] as const).map(t => (
-          <button key={t} onClick={() => { setActiveTab(t); if (t === "history") loadHistory(); }}
-            className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${activeTab === t ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] bg-[rgba(255,200,0,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-            {t === "main" ? "⚡ ТОРГОВЛЯ" : "📋 ИСТОРИЯ"}
-          </button>
-        ))}
+        <button onClick={() => setActiveTab("main")}
+          className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${activeTab === "main" ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] bg-[rgba(255,200,0,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          ⚡ ТОРГОВЛЯ
+        </button>
+        <button onClick={() => { setActiveTab("history"); loadHistory(); }}
+          className={`px-3 py-1.5 font-mono text-xs rounded-none border transition-all ${activeTab === "history" ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] bg-[rgba(255,200,0,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+          📋 ИСТОРИЯ
+        </button>
       </div>
 
       {activeTab === "main" && (<>
@@ -3211,34 +3251,7 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 
       {/* История сделок */}
       {activeTab === "history" && (
-        <div className="space-y-2 animate-fade-in-up">
-          <div className="section-label px-1">ИСТОРИЯ СДЕЛОК · {history.length} записей</div>
-          {history.length === 0 && (
-            <div className="cyber-card rounded-none p-8 text-center">
-              <div className="font-mono text-xs" style={{ color: "var(--cyber-text-dim)" }}>Сделок пока нет</div>
-            </div>
-          )}
-          {history.length > 0 && history.map((t, idx) => {
-            const pnl = t.pnl ?? 0;
-            const isProfit = pnl >= 0;
-            const isClosed = t.status === "closed";
-            const col = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
-            return (
-              <div key={t.id ?? idx} className="cyber-card rounded-none p-3" style={{ borderLeft: `2px solid ${col}` }}>
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-sm font-bold" style={{ color: "var(--cyber-text)" }}>{t.ticker}</span>
-                  <span className="font-orbitron text-sm font-bold" style={{ color: col }}>
-                    {t.pnl != null ? `${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} ₽` : "—"}
-                  </span>
-                </div>
-                <div className="flex justify-between mt-1 font-mono text-[10px]" style={{ color: "var(--cyber-text-dim)" }}>
-                  <span>{isClosed ? (isProfit ? "✓ ПРИБЫЛЬ" : "✗ СТОП") : "● ОТКРЫТА"}</span>
-                  <span>{t.opened_at ? new Date(t.opened_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <ScalpHistory trades={history} />
       )}
     </div>
   );
