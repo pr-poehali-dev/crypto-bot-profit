@@ -90,22 +90,32 @@
   }
 }
 
-/* Мобильный скролл */
+/* ===== МОБИЛЕ: страница скроллится как обычный сайт ===== */
 @media (max-width: 767px) {
-  html {
-    height: 100%;
-  }
+  html,
   body {
-    min-height: 100%;
-    overflow-y: scroll;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
   }
   #root {
-    min-height: 100dvh;
     display: block !important;
-    overflow: visible !important;
     height: auto !important;
+    min-height: 100dvh;
+  }
+}
+
+/* ===== ПК: app-layout ===== */
+@media (min-width: 768px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100%;
+    overflow: hidden;
+    display: flex !important;
+    flex-direction: column;
   }
 }
 

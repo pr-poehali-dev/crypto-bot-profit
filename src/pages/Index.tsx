@@ -5114,7 +5114,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
   ];
 
   return (
-    <div className="cyber-bg md:flex md:flex-row md:h-screen md:overflow-hidden" style={{ fontFamily: "'IBM Plex Sans', sans-serif", color: "var(--cyber-text)", minHeight: "100dvh" }}>
+    <div className="cyber-bg md:flex md:flex-row md:flex-1 md:overflow-hidden" style={{ fontFamily: "'IBM Plex Sans', sans-serif", color: "var(--cyber-text)" }}>
 
       {/* Мобильный оверлей при открытом меню */}
       {sidebarOpen && (
@@ -5191,7 +5191,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       </aside>
 
       {/* Основной контент */}
-      <div className="md:flex-1 md:flex md:flex-col md:min-w-0 md:min-h-0" style={{ paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" }}>
+      <div className="md:flex-1 md:flex md:flex-col md:min-w-0 md:overflow-hidden" style={{ paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" }}>
 
         {/* Хедер */}
         <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
@@ -5244,7 +5244,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         </header>
 
         {/* Контент */}
-        <main className="p-3 md:p-5 md:flex-1 md:overflow-y-auto md:overflow-x-hidden" style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}>{renderContent()}</main>
+        <main className="p-3 md:p-5 md:flex-1 md:overflow-y-auto" style={{ overflowX: "hidden" }}>{renderContent()}</main>
       </div>
 
       {/* Нижняя навигация — только на мобиле */}
