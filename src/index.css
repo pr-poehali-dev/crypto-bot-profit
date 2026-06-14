@@ -90,6 +90,21 @@
   }
 }
 
+/* Мобильный скролл */
+@media (max-width: 767px) {
+  html,
+  body {
+    height: 100%;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #root {
+    min-height: 100%;
+    overflow: visible;
+  }
+}
+
 /* ===== КИБЕРБОТ СТИЛИ ===== */
 
 .cyber-bg {
