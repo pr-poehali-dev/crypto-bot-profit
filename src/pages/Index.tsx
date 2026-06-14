@@ -2483,55 +2483,6 @@ function ServerCronPanel() {
   );
 }
 
-/* ===== HISTORY ===== */
-function HistoryPage() {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fade-in-up">
-        {[
-          { label: "Всего сделок", val: "4,821", color: "cyan" },
-          { label: "Прибыльных", val: "3,471", color: "green" },
-          { label: "Убыточных", val: "1,350", color: "red" },
-          { label: "Средний P&L", val: "$18.4", color: "yellow" },
-        ].map(s => (
-          <div key={s.label} className="cyber-card-glow rounded-none p-4">
-            <div className="section-label mb-1">{s.label}</div>
-            <div className={`font-orbitron text-xl font-bold ${s.color === "green" ? "neon-text" : s.color === "cyan" ? "neon-text-cyan" : s.color === "red" ? "text-[var(--cyber-red)]" : "text-[var(--cyber-yellow)]"}`}>{s.val}</div>
-          </div>
-        ))}
-      </div>
-      <div className="cyber-card rounded-none p-5 animate-fade-in-up delay-200">
-        <div className="section-label mb-4">ИСТОРИЯ СДЕЛОК</div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[var(--cyber-border)]">
-                {["ID", "Пара", "Сторона", "Открытие", "Закрытие", "P&L"].map(h => (
-                  <th key={h} className="section-label text-left py-2 pr-6">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {MOCK_HISTORY.map((t, i) => (
-                <tr key={t.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,255,136,0.03)] animate-fade-in-up" style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-                  <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-3 pr-6">{t.id}</td>
-                  <td className="font-mono text-xs text-[var(--cyber-text)] py-3 pr-6">{t.pair}</td>
-                  <td className={`font-mono text-xs py-3 pr-6 font-semibold ${t.side === "LONG" ? "profit" : "loss"}`}>{t.side}</td>
-                  <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-3 pr-6">{t.open}</td>
-                  <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-3 pr-6">{t.close}</td>
-                  <td className={`font-mono text-sm py-3 pr-6 font-semibold ${t.pnl >= 0 ? "profit" : "loss"}`}>
-                    {t.pnl >= 0 ? "+" : ""}${t.pnl} ({t.pnlPct >= 0 ? "+" : ""}{t.pnlPct}%)
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ===== API KEYS PAGE ===== */
 interface ApiStatus {
   connected: boolean;
