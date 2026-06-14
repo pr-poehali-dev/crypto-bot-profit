@@ -3331,16 +3331,33 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 /* ===== REFERRAL PAGE ===== */
 function ReferralPage({ user }: { user: { username: string; role: string } }) {
   const [stats, setStats] = useState<{ ref_code: string; ref_count: number; refs: { id: number; username: string; joined: string }[]; total_earned: number } | null>(null);
-  const [adminUsers, setAdminUsers] = useState<{ id: number; username: string; email: string; role: string; plan: string; ref_code: string; is_active: boolean; created_at: string; ref_earn: number }[]>([]);
+  const [adminUsers, setAdminUsers] = useState<{ id: number; username: string; email: string; role: string; plan: string; ref_code: string; is_active: boolean; created_at: string; ref_earn: number; platform_earn: number }[]>([]);
+  const [revenue, setRevenue] = useState<{ revenue_total: number; revenue_today: number; revenue_month: number; ref_total: number; by_source: { source: string; total: number; cnt: number }[]; subscriptions: { plan: string; cnt: number }[]; settings: Record<string, string> } | null>(null);
   const [refPct, setRefPct] = useState("0.5");
   const [refMode, setRefMode] = useState("trade_amount");
+  const [feePct, setFeePct] = useState("0.3");
+  const [priceBasic, setPriceBasic] = useState("490");
+  const [pricePro, setPricePro] = useState("990");
   const [saving, setSaving] = useState(false);
+  const [savingMon, setSavingMon] = useState(false);
+  const [settingPlan, setSettingPlan] = useState<number | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     authFetch(`${AUTH_URL}?action=ref_stats`).then(r => r.json()).then(d => { if (d.ok) setStats(d); });
     if (user.role === "admin") {
-      authFetch(`${AUTH_URL}?action=admin_users`).then(r => r.json()).then(d => { if (d.ok) setAdminUsers(d.users); });
+      authFetch(`${AUTH_URL}?action=admin_users`).then(r => r.json()).then(d => {
+        if (d.ok) setAdminUsers(d.users);
+      });
+      authFetch(`${AUTH_URL}?action=admin_revenue`).then(r => r.json()).then(d => {
+        if (d.ok) {
+          setRevenue(d);
+          if (d.settings?.ref_earn_pct) setRefPct(d.settings.ref_earn_pct);
+          if (d.settings?.platform_fee_pct) setFeePct(d.settings.platform_fee_pct);
+          if (d.settings?.price_basic_rub) setPriceBasic(d.settings.price_basic_rub);
+          if (d.settings?.price_pro_rub) setPricePro(d.settings.price_pro_rub);
+        }
+      });
     }
   }, [user.role]);
 
@@ -3351,6 +3368,22 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
     setMsg({ text: d.ok ? "✓ Настройки сохранены" : d.error, ok: d.ok });
     setSaving(false);
     setTimeout(() => setMsg(null), 3000);
+  };
+
+  const saveMonetization = async () => {
+    setSavingMon(true);
+    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "save_monetization", platform_fee_pct: feePct, price_basic_rub: priceBasic, price_pro_rub: pricePro }) });
+    const d = await r.json();
+    setMsg({ text: d.ok ? "✓ Монетизация сохранена" : d.error, ok: d.ok });
+    setSavingMon(false);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  const setUserPlan = async (userId: number, plan: string) => {
+    setSettingPlan(userId);
+    await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "set_user_plan", user_id: userId, plan }) });
+    setAdminUsers(prev => prev.map(u => u.id === userId ? { ...u, plan } : u));
+    setSettingPlan(null);
   };
 
   return (
@@ -3397,14 +3430,75 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
         </div>
       )}
 
-      {/* Настройки реф.системы (только admin) */}
+      {/* ── ADMIN: Доход платформы ── */}
+      {user.role === "admin" && revenue && (
+        <div className="cyber-card-glow rounded-none p-4 animate-fade-in-up border border-[rgba(255,200,0,0.3)]">
+          <div className="flex items-center gap-2 mb-4">
+            <Icon name="TrendingUp" size={14} className="text-[var(--cyber-yellow)]" />
+            <div className="section-label text-[var(--cyber-yellow)]">ДОХОД ПЛАТФОРМЫ</div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {[
+              { label: "За сегодня", val: revenue.revenue_today, color: "neon-text" },
+              { label: "За месяц",   val: revenue.revenue_month, color: "neon-text-cyan" },
+              { label: "Всего",      val: revenue.revenue_total, color: "text-[var(--cyber-yellow)]" },
+              { label: "Рефералы",   val: revenue.ref_total,     color: "profit" },
+            ].map(s => (
+              <div key={s.label} className="cyber-card rounded-none p-3 text-center">
+                <div className={`font-orbitron text-lg font-bold ${s.color}`}>{s.val.toFixed(2)} ₽</div>
+                <div className="section-label mt-0.5">{s.label}</div>
+              </div>
+            ))}
+          </div>
+          {/* По источникам */}
+          {revenue.by_source.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {revenue.by_source.map(s => (
+                <div key={s.source} className="flex items-center justify-between font-mono text-xs">
+                  <span className="text-[var(--cyber-text-dim)]">{s.source === "trade_fee" ? "Комиссия со сделок" : s.source === "subscription" ? "Подписки" : s.source} ({s.cnt} шт)</span>
+                  <span className="neon-text font-bold">+{s.total.toFixed(2)} ₽</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Подписки */}
+          {revenue.subscriptions.length > 0 && (
+            <div className="flex gap-2 flex-wrap mb-3">
+              {revenue.subscriptions.map(s => (
+                <div key={s.plan} className="border border-[var(--cyber-cyan)] px-2 py-1 font-mono text-[10px] text-[var(--cyber-cyan)]">
+                  {s.plan.toUpperCase()} × {s.cnt}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ADMIN: Настройки монетизации ── */}
       {user.role === "admin" && (
         <div className="cyber-card rounded-none p-4 border border-[rgba(255,200,0,0.2)] animate-fade-in-up space-y-3">
-          <div className="section-label text-[var(--cyber-yellow)]">НАСТРОЙКИ РЕФЕРАЛЬНОЙ СИСТЕМЫ (ADMIN)</div>
+          <div className="section-label text-[var(--cyber-yellow)]">МОНЕТИЗАЦИЯ ПЛАТФОРМЫ (ADMIN)</div>
           {msg && <div className={`p-2 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <div className="section-label text-[10px] mb-1">Комиссия % со сделки</div>
+              <input value={feePct} onChange={e => setFeePct(e.target.value)} type="number" step="0.01" min="0" max="5"
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+            </div>
+            <div>
+              <div className="section-label text-[10px] mb-1">BASIC ₽/мес</div>
+              <input value={priceBasic} onChange={e => setPriceBasic(e.target.value)} type="number" min="0"
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+            </div>
+            <div>
+              <div className="section-label text-[10px] mb-1">PRO ₽/мес</div>
+              <input value={pricePro} onChange={e => setPricePro(e.target.value)} type="number" min="0"
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="section-label text-[10px] mb-1">% начисления с каждой сделки</div>
+              <div className="section-label text-[10px] mb-1">% реф. начислений</div>
               <input value={refPct} onChange={e => setRefPct(e.target.value)} type="number" step="0.01" min="0"
                 className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)]" />
             </div>
@@ -3416,42 +3510,59 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
               </select>
             </div>
           </div>
-          <button onClick={saveRefSettings} disabled={saving} className="w-full py-2 font-mono text-xs border border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] hover:bg-[rgba(255,200,0,0.08)] rounded-none transition-all disabled:opacity-40">
-            {saving ? "СОХРАНЕНИЕ..." : "ПРИМЕНИТЬ"}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={saveMonetization} disabled={savingMon} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] hover:bg-[rgba(255,200,0,0.08)] rounded-none transition-all disabled:opacity-40">
+              {savingMon ? "..." : "💰 СОХРАНИТЬ МОНЕТИЗАЦИЮ"}
+            </button>
+            <button onClick={saveRefSettings} disabled={saving} className="flex-1 py-2 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40">
+              {saving ? "..." : "👥 РЕФЕРАЛЬНАЯ"}
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Все пользователи (только admin) */}
+      {/* ── ADMIN: Все пользователи + подписки ── */}
       {user.role === "admin" && adminUsers.length > 0 && (
         <div className="cyber-card rounded-none p-4 animate-fade-in-up">
-          <div className="section-label mb-3">ВСЕ ПОЛЬЗОВАТЕЛИ КИБЕРБОТ</div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[var(--cyber-border)]">
-                  {["ID", "Логин", "Роль", "Реф-код", "Доход с него", "Дата"].map(h => (
-                    <th key={h} className="section-label text-left py-2 pr-4 text-[10px]">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {adminUsers.map((u, i) => (
-                  <tr key={u.id} className="border-b border-[rgba(26,58,74,0.4)] hover:bg-[rgba(0,255,136,0.02)]">
-                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{u.id}</td>
-                    <td className="font-mono text-xs font-bold text-[var(--cyber-text)] py-2 pr-4">{u.username}</td>
-                    <td className={`font-mono text-xs py-2 pr-4 ${u.role === "admin" ? "neon-text" : "text-[var(--cyber-text-dim)]"}`}>{u.role}</td>
-                    <td className="font-mono text-xs text-[var(--cyber-cyan)] py-2 pr-4">{u.ref_code || "—"}</td>
-                    <td className={`font-mono text-xs py-2 pr-4 ${u.ref_earn > 0 ? "neon-text" : "text-[var(--cyber-text-dim)]"}`}>{u.ref_earn > 0 ? `+${u.ref_earn.toFixed(2)} ₽` : "0 ₽"}</td>
-                    <td className="font-mono text-xs text-[var(--cyber-text-dim)] py-2 pr-4">{new Date(u.created_at).toLocaleDateString("ru-RU")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="section-label mb-3">ВСЕ ПОЛЬЗОВАТЕЛИ · {adminUsers.length}</div>
+          <div className="space-y-2">
+            {adminUsers.map(u => (
+              <div key={u.id} className="border border-[var(--cyber-border)] p-3 hover:border-[var(--cyber-yellow)] transition-all">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono text-xs text-[var(--cyber-text-dim)]">#{u.id}</span>
+                    <span className="font-mono text-sm font-bold text-[var(--cyber-text)] truncate">{u.username}</span>
+                    <span className={`font-mono text-[10px] px-1.5 py-0.5 ${u.plan === "pro" ? "bg-[rgba(255,200,0,0.15)] text-[var(--cyber-yellow)]" : u.plan === "basic" ? "bg-[rgba(0,212,255,0.1)] text-[var(--cyber-cyan)]" : "text-[var(--cyber-text-dim)]"}`}>
+                      {(u.plan || "free").toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {(["free","basic","pro"] as const).map(p => (
+                      <button key={p} onClick={() => setUserPlan(u.id, p)} disabled={settingPlan === u.id || u.plan === p}
+                        className={`px-2 py-0.5 font-mono text-[10px] border rounded-none transition-all disabled:opacity-40 ${u.plan === p ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-yellow)]"}`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-4 mt-1.5 font-mono text-[10px] text-[var(--cyber-text-dim)]">
+                  <span>Реф: <span className="text-[var(--cyber-cyan)]">{u.ref_code || "—"}</span></span>
+                  <span>Платформа: <span className={u.platform_earn > 0 ? "neon-text" : ""}>{u.platform_earn?.toFixed(2) ?? "0"} ₽</span></span>
+                  <span>Реф.доход: <span className={u.ref_earn > 0 ? "profit" : ""}>{u.ref_earn?.toFixed(2) ?? "0"} ₽</span></span>
+                  <span>{new Date(u.created_at).toLocaleDateString("ru-RU")}</span>
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="mt-3 p-3 border border-[rgba(0,255,136,0.2)] font-mono text-xs">
-            <span className="section-label">Итого доход от рефералов: </span>
-            <span className="neon-text font-bold">{adminUsers.reduce((a, u) => a + u.ref_earn, 0).toFixed(2)} ₽</span>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="p-3 border border-[rgba(0,255,136,0.2)] font-mono text-xs text-center">
+              <div className="neon-text font-bold text-base">{adminUsers.reduce((a, u) => a + (u.platform_earn ?? 0), 0).toFixed(2)} ₽</div>
+              <div className="section-label">Итого комиссий</div>
+            </div>
+            <div className="p-3 border border-[rgba(0,212,255,0.2)] font-mono text-xs text-center">
+              <div className="neon-text-cyan font-bold text-base">{adminUsers.filter(u => u.plan !== "free").length}</div>
+              <div className="section-label">Платных подписок</div>
+            </div>
           </div>
         </div>
       )}
@@ -3894,10 +4005,124 @@ function GenericPage({ title, icon }: { title: string; icon: string }) {
   );
 }
 
+/* ===== LANDING PAGE ===== */
+function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+  const features = [
+    { icon: "Zap",        title: "Скальпинг акций",      desc: "Автоматические сделки по RSI, EMA, MACD. До 8 сделок в день." },
+    { icon: "Bot",        title: "Автотрейдинг 24/7",    desc: "Бот работает без остановки, торгует пока ты спишь." },
+    { icon: "Shield",     title: "Стоп-лосс защита",     desc: "Авто-продажа при достижении заданного % убытка." },
+    { icon: "Smartphone", title: "С телефона",            desc: "Управляй ботом с мобильного — удобный интерфейс." },
+    { icon: "Users",      title: "Реф. программа",       desc: "Приглашай друзей и получай % с каждой их сделки." },
+    { icon: "Building2",  title: "Т-Банк Invest",        desc: "Прямое подключение через официальный Open API." },
+  ];
+  const plans = [
+    { name: "FREE",  price: "0 ₽",   color: "var(--cyber-text-dim)",   features: ["Ручная торговля", "История сделок", "Реф. программа"] },
+    { name: "BASIC", price: "490 ₽", color: "var(--cyber-cyan)",       features: ["Всё из FREE", "Автотрейдинг", "Авто-продажа %"] },
+    { name: "PRO",   price: "990 ₽", color: "var(--cyber-yellow)",     features: ["Всё из BASIC", "Скальпинг бот", "До 8 сделок/день", "Приоритет поддержки"] },
+  ];
+  return (
+    <div className="cyber-bg min-h-screen" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
+      {/* Hero */}
+      <div className="relative flex flex-col items-center justify-center min-h-screen px-4 py-16 text-center">
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {[...Array(20)].map((_, i) => (
+            <div key={i} className="absolute w-px bg-gradient-to-b from-transparent via-[rgba(0,255,136,0.1)] to-transparent"
+              style={{ left: `${(i + 1) * 5}%`, top: 0, bottom: 0, animationDelay: `${i * 0.2}s` }} />
+          ))}
+        </div>
+        <div className="relative z-10 max-w-2xl mx-auto">
+          <div className="w-20 h-20 mx-auto mb-6 flex items-center justify-center animate-fade-in-up"
+            style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 40px rgba(0,255,136,0.4)" }}>
+            <Icon name="Bot" size={40} style={{ color: "var(--cyber-green)" }} />
+          </div>
+          <div className="font-orbitron text-4xl md:text-6xl font-black neon-text mb-3 animate-fade-in-up">КИБЕРБОТ</div>
+          <div className="font-mono text-sm md:text-base text-[var(--cyber-cyan)] tracking-widest mb-6 animate-fade-in-up">
+            АВТОМАТИЧЕСКИЙ ТОРГОВЫЙ БОТ ДЛЯ Т-БАНК INVEST
+          </div>
+          <div className="font-mono text-sm text-[var(--cyber-text-dim)] mb-10 max-w-lg mx-auto leading-relaxed animate-fade-in-up">
+            Скальпинг, автотрейдинг и авто-продажа портфеля по заданному %. Торгуй умнее — зарабатывай больше.
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center animate-fade-in-up">
+            <button onClick={onGetStarted}
+              className="px-8 py-4 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)] transition-all"
+              style={{ boxShadow: "0 0 20px rgba(0,255,136,0.3)" }}>
+              НАЧАТЬ БЕСПЛАТНО →
+            </button>
+            <a href="#features" className="px-8 py-4 font-orbitron text-sm font-bold border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] transition-all text-center">
+              УЗНАТЬ БОЛЬШЕ
+            </a>
+          </div>
+          <div className="mt-6 flex items-center justify-center gap-6 font-mono text-[10px] text-[var(--cyber-text-dim)] animate-fade-in-up">
+            <span>✓ Бесплатная регистрация</span>
+            <span>✓ Т-Банк Open API</span>
+            <span>✓ До 8 сделок в день</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Features */}
+      <div id="features" className="px-4 py-16 max-w-4xl mx-auto">
+        <div className="font-orbitron text-2xl font-bold text-center neon-text-cyan mb-10">ВОЗМОЖНОСТИ</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {features.map(f => (
+            <div key={f.title} className="cyber-card rounded-none p-4 hover:border-[var(--cyber-green)] transition-all">
+              <Icon name={f.icon} size={24} className="mb-3" style={{ color: "var(--cyber-green)" }} />
+              <div className="font-orbitron text-sm font-bold text-[var(--cyber-text)] mb-1">{f.title}</div>
+              <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">{f.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Pricing */}
+      <div className="px-4 py-16 max-w-3xl mx-auto">
+        <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-10">ТАРИФЫ</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {plans.map((p, i) => (
+            <div key={p.name} className={`cyber-card rounded-none p-5 flex flex-col ${i === 2 ? "border-[var(--cyber-yellow)]" : ""}`}
+              style={{ borderColor: i === 2 ? "var(--cyber-yellow)" : undefined }}>
+              {i === 2 && <div className="font-mono text-[10px] text-[var(--cyber-yellow)] mb-2 tracking-widest">⭐ ЛУЧШИЙ ВЫБОР</div>}
+              <div className="font-orbitron text-base font-black mb-1" style={{ color: p.color }}>{p.name}</div>
+              <div className="font-orbitron text-2xl font-black text-[var(--cyber-text)] mb-4">{p.price}<span className="font-mono text-xs text-[var(--cyber-text-dim)]">/мес</span></div>
+              <ul className="space-y-1.5 mb-6 flex-1">
+                {p.features.map(f => (
+                  <li key={f} className="font-mono text-xs text-[var(--cyber-text-dim)] flex items-center gap-1.5">
+                    <span style={{ color: p.color }}>✓</span> {f}
+                  </li>
+                ))}
+              </ul>
+              <button onClick={onGetStarted}
+                className="w-full py-2.5 font-mono text-xs border transition-all"
+                style={{ borderColor: p.color, color: p.color }}>
+                {i === 0 ? "НАЧАТЬ" : "ВЫБРАТЬ"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* CTA */}
+      <div className="px-4 py-16 text-center border-t border-[var(--cyber-border)]">
+        <div className="font-orbitron text-xl font-bold neon-text mb-3">ГОТОВ НАЧАТЬ?</div>
+        <div className="font-mono text-sm text-[var(--cyber-text-dim)] mb-6">Регистрация бесплатна. Подключи токен Т-Банк — и бот начнёт работать.</div>
+        <button onClick={onGetStarted}
+          className="px-10 py-4 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.15)] transition-all"
+          style={{ boxShadow: "0 0 20px rgba(0,255,136,0.3)" }}>
+          ЗАРЕГИСТРИРОВАТЬСЯ БЕСПЛАТНО →
+        </button>
+        <div className="mt-8 font-mono text-[10px] text-[var(--cyber-text-dim)]">
+          КиберБот · Автоматический трейдинг · Т-Банк Invest API
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ===== ROOT WRAPPER — проверка авторизации ===== */
 export default function Index() {
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<{ username: string; role: string } | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
 
   useEffect(() => {
     const sid = getSession();
@@ -3922,6 +4147,7 @@ export default function Index() {
     </div>
   );
 
+  if (!user && !showAuth) return <LandingPage onGetStarted={() => setShowAuth(true)} />;
   if (!user) return <LoginPage onLogin={handleLogin} />;
   return <AppShell user={user} onLogout={() => { clearSession(); setUser(null); }} />;
 }

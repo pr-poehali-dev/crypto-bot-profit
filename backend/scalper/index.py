@@ -162,7 +162,7 @@ def score_instrument(figi, token):
     return round(min(score, 100), 1), signal, round(rsi_val, 1), round(macd_hist, 6)
 
 def add_referral_earning(user_id, trade_amount, token):
-    """Начислить реферальный доход владельцу."""
+    """Начислить реферальный доход рефереру пользователя."""
     ref = db(f"SELECT referred_by FROM {SCHEMA}.users WHERE id = %s", (user_id,))
     if not ref or not ref[0]["referred_by"]: return
     owner_id = ref[0]["referred_by"]
@@ -172,6 +172,17 @@ def add_referral_earning(user_id, trade_amount, token):
     if earned <= 0: return
     db(f"INSERT INTO {SCHEMA}.referral_earnings (owner_id, from_user_id, trade_amount, earn_pct, earned) VALUES (%s, %s, %s, %s, %s)",
        (owner_id, user_id, trade_amount, pct, earned))
+
+def add_platform_revenue(user_id, trade_amount):
+    """Начислить комиссию платформы (владельцу = user_id 1) с каждой сделки."""
+    if user_id == 1: return  # не берём с самого себя
+    pct_rows = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE key = 'platform_fee_pct' AND user_id = 1")
+    pct = float(pct_rows[0]["value"]) if pct_rows else 0.3
+    revenue = round(trade_amount * pct / 100, 2)
+    if revenue <= 0: return
+    db(f"INSERT INTO {SCHEMA}.platform_revenue (user_id, source, trade_amount, fee_pct, revenue, description) VALUES (%s, 'trade_fee', %s, %s, %s, %s)",
+       (user_id, trade_amount, pct, revenue, f"Комиссия {pct}% со сделки пользователя {user_id}"))
+    print(f"[platform_revenue] uid={user_id} trade={trade_amount:.2f} fee={pct}% revenue={revenue:.2f}")
 
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
@@ -280,6 +291,7 @@ def handler(event: dict, context) -> dict:
             trade = db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, lot_size, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (uid, figi, ticker, lots, lot_size, buy_price_adj, round(amount, 2), target_pct, stop_pct, order_id))
             add_referral_earning(uid, amount, token)
+            add_platform_revenue(uid, amount)
             print(f"[buy] {ticker} price={price} buy_price_adj={buy_price_adj} lot_size={lot_size} lots={lots} amount={amount:.2f}")
             return resp({"ok": True, "trade_id": trade[0]["id"] if trade else None, "price": buy_price_adj, "amount": round(amount, 2), "order_id": order_id})
 
@@ -420,6 +432,7 @@ def handler(event: dict, context) -> dict:
                 db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, lot_size, buy_price, amount, target_pct, stop_pct, order_buy_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                    (uid, inst["figi"], inst["ticker"], lots, lot, buy_price_adj, cost_adj, target_pct, stop_pct, order.get("orderId","")))
                 add_referral_earning(uid, cost_adj, token)
+                add_platform_revenue(uid, cost_adj)
                 free_cash  -= cost
                 open_count += 1
                 bought.append({"ticker": inst["ticker"], "score": score, "signal": signal, "rsi": rsi_val, "macd": macd_hist, "price": price, "lots": lots, "cost": round(cost,2)})

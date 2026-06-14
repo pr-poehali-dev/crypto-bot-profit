@@ -88,15 +88,48 @@ def handler(event: dict, context) -> dict:
         if action == "admin_users":
             user = check_session(session_id)
             if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
-            users = db(f"SELECT id, username, email, role, plan, ref_code, referred_by, is_active, created_at, last_login FROM {SCHEMA}.users ORDER BY id")
+            users = db(f"SELECT id, username, email, role, plan, ref_code, referred_by, is_active, created_at, last_login FROM {SCHEMA}.users ORDER BY id DESC")
             # Реферальный доход по каждому
             earnings = db(f"SELECT from_user_id, SUM(earned) as total FROM {SCHEMA}.referral_earnings WHERE owner_id = 1 GROUP BY from_user_id")
             earn_map = {e["from_user_id"]: float(e["total"]) for e in earnings}
+            # Доход платформы по каждому пользователю
+            platform_rev = db(f"SELECT user_id, SUM(revenue) as total FROM {SCHEMA}.platform_revenue GROUP BY user_id")
+            platform_map = {p["user_id"]: float(p["total"]) for p in platform_rev}
             for u in users:
-                u["ref_earn"] = earn_map.get(u["id"], 0)
-                u["created_at"] = str(u["created_at"])
-                u["last_login"] = str(u["last_login"]) if u["last_login"] else None
+                u["ref_earn"]       = earn_map.get(u["id"], 0)
+                u["platform_earn"]  = platform_map.get(u["id"], 0)
+                u["created_at"]     = str(u["created_at"])
+                u["last_login"]     = str(u["last_login"]) if u["last_login"] else None
             return resp({"ok": True, "users": users})
+
+        if action == "admin_revenue":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            # Общий доход платформы
+            total = db(f"SELECT COALESCE(SUM(revenue),0) as total FROM {SCHEMA}.platform_revenue")
+            today = db(f"SELECT COALESCE(SUM(revenue),0) as total FROM {SCHEMA}.platform_revenue WHERE created_at > NOW() - INTERVAL '24 hours'")
+            month = db(f"SELECT COALESCE(SUM(revenue),0) as total FROM {SCHEMA}.platform_revenue WHERE created_at > NOW() - INTERVAL '30 days'")
+            # Доход по источникам
+            by_source = db(f"SELECT source, COALESCE(SUM(revenue),0) as total, COUNT(*) as cnt FROM {SCHEMA}.platform_revenue GROUP BY source")
+            # Последние транзакции
+            recent = db(f"SELECT pr.id, u.username, pr.source, pr.trade_amount, pr.fee_pct, pr.revenue, pr.description, pr.created_at FROM {SCHEMA}.platform_revenue pr JOIN {SCHEMA}.users u ON u.id = pr.user_id ORDER BY pr.created_at DESC LIMIT 30")
+            # Рефералы
+            ref_total = db(f"SELECT COALESCE(SUM(earned),0) as total FROM {SCHEMA}.referral_earnings WHERE owner_id = 1")
+            # Подписки
+            subs = db(f"SELECT plan, COUNT(*) as cnt FROM {SCHEMA}.users WHERE plan != 'free' GROUP BY plan")
+            # Настройки монетизации
+            settings_rows = db(f"SELECT key, value FROM {SCHEMA}.bot_settings WHERE user_id = 1 AND key IN ('platform_fee_pct','price_basic_rub','price_pro_rub','ref_earn_pct')")
+            settings = {r["key"]: r["value"] for r in settings_rows}
+            return resp({"ok": True,
+                "revenue_total":   float(total[0]["total"]),
+                "revenue_today":   float(today[0]["total"]),
+                "revenue_month":   float(month[0]["total"]),
+                "ref_total":       float(ref_total[0]["total"]) if ref_total else 0,
+                "by_source":       [{"source": s["source"], "total": float(s["total"]), "cnt": s["cnt"]} for s in by_source],
+                "recent":          [{**r, "created_at": str(r["created_at"])} for r in recent],
+                "subscriptions":   [{"plan": s["plan"], "cnt": s["cnt"]} for s in subs],
+                "settings":        settings,
+            })
 
         if action == "ref_stats":
             user = check_session(session_id)
@@ -227,6 +260,35 @@ def handler(event: dict, context) -> dict:
             db(f"INSERT INTO {SCHEMA}.bot_settings (user_id, key, value) VALUES (1, 'ref_earn_pct', %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s", (pct, pct))
             db(f"INSERT INTO {SCHEMA}.bot_settings (user_id, key, value) VALUES (1, 'ref_earn_mode', %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s", (mode, mode))
             return resp({"ok": True, "message": "Настройки реферальной системы сохранены"})
+
+        # ── Настройки монетизации платформы (только admin) ───────────────
+        if action == "save_monetization":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            for key in ("platform_fee_pct", "price_basic_rub", "price_pro_rub", "ref_earn_pct"):
+                val = body.get(key)
+                if val is not None:
+                    db(f"INSERT INTO {SCHEMA}.bot_settings (user_id, key, value) VALUES (1, %s, %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s", (key, str(val), str(val)))
+            return resp({"ok": True})
+
+        # ── Назначить/убрать подписку пользователю (только admin) ────────
+        if action == "set_user_plan":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            target_id = body.get("user_id")
+            plan = body.get("plan", "free")
+            if plan not in ("free", "basic", "pro"): return resp({"ok": False, "error": "Неверный план"}, 400)
+            db(f"UPDATE {SCHEMA}.users SET plan = %s WHERE id = %s", (plan, target_id))
+            # Записываем в subscriptions
+            if plan != "free":
+                price_row = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE user_id=1 AND key=%s", (f"price_{plan}_rub",))
+                price = float(price_row[0]["value"]) if price_row else 0
+                db(f"INSERT INTO {SCHEMA}.subscriptions (user_id, plan, price_rub, expires_at) VALUES (%s, %s, %s, NOW() + INTERVAL '30 days')", (target_id, plan, price))
+                # Записываем доход платформы
+                if price > 0:
+                    db(f"INSERT INTO {SCHEMA}.platform_revenue (user_id, source, trade_amount, fee_pct, revenue, description) VALUES (%s, 'subscription', %s, 100, %s, %s)",
+                       (target_id, price, price, f"Подписка {plan.upper()}"))
+            return resp({"ok": True})
 
         # ── Сброс пароля (мастер-ключ) ────────────────────────────────────
         if action == "reset_password":
