@@ -2966,12 +2966,15 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
   }, []);
 
   const loadHistory = useCallback(async () => {
-    const r = await authFetch(`${SCALPER_URL}?action=history`);
-    const d = await r.json();
-    if (d.trades) setHistory(d.trades);
+    try {
+      const r = await authFetch(`${SCALPER_URL}?action=history`);
+      const d = await r.json();
+      setHistory(Array.isArray(d.trades) ? d.trades : []);
+    } catch { setHistory([]); }
   }, []);
 
   useEffect(() => { loadStatus(); loadHistory(); }, [loadStatus, loadHistory]);
+  useEffect(() => { if (activeTab === "history") loadHistory(); }, [activeTab, loadHistory]);
 
   const scan = async () => {
     setScanning(true); setCandidates([]);
