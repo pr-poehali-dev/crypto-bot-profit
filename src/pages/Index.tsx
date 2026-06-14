@@ -178,7 +178,6 @@ const NAV_ITEMS = [
   { id: "signals", icon: "Radio", label: "Сигналы" },
   { id: "risk", icon: "Shield", label: "Риск-менедж" },
   { id: "alerts", icon: "Bell", label: "Алерты" },
-  { id: "scalper", icon: "Zap", label: "Скальпинг" },
   { id: "referral", icon: "Users", label: "Рефералы" },
   { id: "profile", icon: "User", label: "Профиль" },
   { id: "api", icon: "Key", label: "API Ключи" },
@@ -1505,7 +1504,7 @@ function TBankScalpStatus() {
   );
 }
 
-function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
+function TBankPage({ refreshKey = 0, scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalpIntervalMin, scalpCountdown, setScalpCountdown, scalpRunning, triggerScalpCycle, scalpMsg }: { refreshKey?: number } & ScalperPageProps) {
   const [tab, setTab] = useState<"balance" | "autobot" | "scalper" | "market" | "orders" | "portfolio">("balance");
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
@@ -1919,16 +1918,13 @@ function TBankPage({ refreshKey = 0 }: { refreshKey?: number }) {
 
       {/* ═══ СКАЛЬПИНГ в Т-Банк ═══ */}
       {tab === "scalper" && (
-        <div className="animate-fade-in-up">
-          <div className="cyber-card rounded-none p-4 mb-3 border border-[rgba(255,200,0,0.2)]">
-            <div className="flex items-center gap-2 text-[11px] text-[var(--cyber-text-dim)]">
-              <Icon name="Zap" size={13} className="text-[var(--cyber-yellow)] shrink-0" />
-              Скальпинг-бот находится в разделе <button onClick={() => {}} className="text-[var(--cyber-yellow)] font-semibold underline">⚡ Скальпинг</button> в боковом меню. Открытые позиции и история сделок — там же.
-            </div>
-          </div>
-          {/* Мини-статус прямо в Т-Банк */}
-          <TBankScalpStatus />
-        </div>
+        <ScalperPage
+          scalpEnabled={scalpEnabled} setScalpEnabled={setScalpEnabled}
+          scalpIntervalMin={scalpIntervalMin} setScalpIntervalMin={setScalpIntervalMin}
+          scalpCountdown={scalpCountdown} setScalpCountdown={setScalpCountdown}
+          scalpRunning={scalpRunning} triggerScalpCycle={triggerScalpCycle}
+          scalpMsg={scalpMsg}
+        />
       )}
 
       {/* ═══ РЫНОК ═══ */}
@@ -4216,11 +4212,18 @@ function BingXPage() {
 function HistoryPage() {
   const [trades, setTrades] = useState<{id:number;ticker:string;buy_price:number;sell_price:number|null;pnl:number|null;pnl_pct:number|null;status:string;opened_at:string}[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string|null>(null);
 
   useEffect(() => {
+    setError(null);
     authFetch(`${SCALPER_URL}?action=history`)
       .then(r => r.json())
-      .then(d => { if (d.trades) setTrades(d.trades); })
+      .then(d => {
+        if (d.error) setError(d.error);
+        else if (Array.isArray(d.trades)) setTrades(d.trades);
+        else setTrades([]);
+      })
+      .catch(() => setError("Ошибка соединения с сервером"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -4239,14 +4242,20 @@ function HistoryPage() {
         </div>
       )}
 
-      {!loading && trades.length === 0 && (
-        <div className="cyber-card rounded-none p-8 text-center">
-          <Icon name="History" size={32} className="mx-auto mb-3 opacity-30" style={{ color: "var(--cyber-text-dim)" }} />
-          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Сделок ещё не было — запусти скальпер чтобы начать</div>
+      {!loading && error && (
+        <div className="cyber-card rounded-none p-4 border border-[var(--cyber-red)]">
+          <div className="font-mono text-xs text-[var(--cyber-red)]">⚠ {error}</div>
         </div>
       )}
 
-      {!loading && trades.map(t => {
+      {!loading && !error && trades.length === 0 && (
+        <div className="cyber-card rounded-none p-8 text-center">
+          <Icon name="History" size={32} className="mx-auto mb-3 opacity-30" style={{ color: "var(--cyber-text-dim)" }} />
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)]">Сделок ещё не было — запусти скальпер во вкладке Т-Банк → Скальпинг</div>
+        </div>
+      )}
+
+      {!loading && !error && trades.map(t => {
         const isProfit = (t.pnl ?? 0) >= 0;
         const isClosed = t.status === "closed";
         const statusColor = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
@@ -4771,7 +4780,13 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "dashboard": return <DashboardPage botRunning={botRunning} setBotRunning={setBotRunning} />;
       case "trading": return <TradingPage />;
       case "strategies": return <StrategiesPage />;
-      case "tbank": return <TBankPage refreshKey={balanceRefreshKey} />;
+      case "tbank": return <TBankPage refreshKey={balanceRefreshKey}
+        scalpEnabled={scalpEnabled} setScalpEnabled={setScalpEnabled}
+        scalpIntervalMin={scalpIntervalMin} setScalpIntervalMin={setScalpIntervalMin}
+        scalpCountdown={scalpCountdown} setScalpCountdown={setScalpCountdown}
+        scalpRunning={scalpRunning} triggerScalpCycle={triggerScalpCycle}
+        scalpMsg={scalpMsg}
+      />;
       case "bingx": return <BingXPage />;
       case "autobot": return <AutoBotPage
         botEnabled={botEnabled} setBotEnabled={setBotEnabled}
@@ -4816,7 +4831,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
     { id: "dashboard",  icon: "LayoutDashboard", label: "Главная" },
     { id: "tbank",      icon: "Building2",        label: "Т-Банк" },
     { id: "autobot",    icon: "Bot",              label: "Автобот" },
-    { id: "scalper",    icon: "Zap",              label: "Скальпер" },
+    { id: "history",    icon: "History",          label: "История" },
     { id: "settings_menu", icon: "Menu",          label: "Меню" },
   ];
 
@@ -4927,7 +4942,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
               </button>
             )}
             {scalpEnabled && (
-              <button onClick={() => setActiveSection("scalper")}
+              <button onClick={() => setActiveSection("tbank")}
                 className="flex items-center gap-1 px-1.5 py-1 border border-[var(--cyber-yellow)] rounded-none">
                 <div className="w-1.5 h-1.5 rounded-full bg-[var(--cyber-yellow)] animate-pulse" />
                 <span className="font-orbitron text-[10px] text-[var(--cyber-yellow)]">
