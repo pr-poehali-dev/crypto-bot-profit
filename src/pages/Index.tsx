@@ -3173,18 +3173,28 @@ function ScalpHistory({ trades }: { trades: { id: number; ticker: string; buy_pr
 
 /* ===== SCALPER PAGE ===== */
 function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalpIntervalMin, scalpCountdown, setScalpCountdown, scalpRunning, triggerScalpCycle, scalpMsg }: ScalperPageProps) {
-  const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string }[]; trades_today: number; pnl_today: number; accounts: { id: string; name: string }[]; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean; account_id: string } } | null>(null);
-  const [history, setHistory] = useState<{ id: number; ticker: string; buy_price: number; sell_price: number; pnl: number; pnl_pct: number; status: string; opened_at: string; closed_at: string }[]>([]);
+  const [scStatus, setScStatus] = useState<{ open_trades: { id: number; ticker: string; buy_price: number; lots: number; amount: number; target_pct: number; stop_pct: number; opened_at: string; account_id?: string }[]; trades_today: number; pnl_today: number; accounts: { id: string; name: string }[]; settings: { target_pct: number; stop_pct: number; amount: number; enabled: boolean; account_id: string }; settings2?: { target_pct: number; stop_pct: number; amount: number; enabled: boolean; account_id: string } } | null>(null);
+  const [history, setHistory] = useState<{ id: number; ticker: string; buy_price: number; sell_price: number; pnl: number; pnl_pct: number; status: string; opened_at: string; closed_at: string; account_id?: string }[]>([]);
   const [candidates, setCandidates] = useState<{ figi: string; ticker: string; name: string; score: number; rsi: number; volatility: number; price: number; lot: number }[]>([]);
   const [scanning, setScanning] = useState(false);
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [activeTab, setActiveTab] = useState<"main" | "history">("main");
+
+  // Счёт 1 — скальпинг (быстрый доход)
   const [targetPct, setTargetPct] = useState("1.0");
   const [stopPct, setStopPct] = useState("2.0");
   const [amount, setAmount] = useState("1000");
   const [accountId, setAccountId] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"main" | "history">("main");
+
+  // Счёт 2 — автобот (крупные сделки)
+  const [enabled2, setEnabled2] = useState(false);
+  const [targetPct2, setTargetPct2] = useState("1.0");
+  const [stopPct2, setStopPct2] = useState("2.0");
+  const [amount2, setAmount2] = useState("5000");
+  const [accountId2, setAccountId2] = useState("");
+  const [saving2, setSaving2] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -3196,6 +3206,13 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
         if (d.settings?.stop_pct) setStopPct(String(d.settings.stop_pct));
         if (d.settings?.amount) setAmount(String(d.settings.amount));
         if (d.settings?.account_id) setAccountId(d.settings.account_id);
+        if (d.settings2) {
+          setEnabled2(d.settings2.enabled);
+          setTargetPct2(String(d.settings2.target_pct));
+          setStopPct2(String(d.settings2.stop_pct));
+          setAmount2(String(d.settings2.amount));
+          if (d.settings2.account_id) setAccountId2(d.settings2.account_id);
+        }
       }
     } catch { /* ignore */ }
   }, []);
@@ -3221,10 +3238,19 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
 
   const saveSettings = async () => {
     setSaving(true);
-    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled: scalpEnabled, account_id: accountId }) });
+    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", account_num: "1", target_pct: parseFloat(targetPct), stop_pct: parseFloat(stopPct), amount: parseFloat(amount), enabled: scalpEnabled, account_id: accountId }) });
     await loadStatus();
     setSaving(false);
-    setMsg({ text: "✓ Настройки сохранены", ok: true });
+    setMsg({ text: "✓ Счёт 1 сохранён", ok: true });
+    setTimeout(() => setMsg(null), 2000);
+  };
+
+  const saveSettings2 = async () => {
+    setSaving2(true);
+    await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_settings", account_num: "2", target_pct: parseFloat(targetPct2), stop_pct: parseFloat(stopPct2), amount: parseFloat(amount2), enabled: enabled2, account_id: accountId2 }) });
+    await loadStatus();
+    setSaving2(false);
+    setMsg({ text: "✓ Счёт 2 сохранён", ok: true });
     setTimeout(() => setMsg(null), 2000);
   };
 
@@ -3332,11 +3358,18 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
       </div>
 
       {activeTab === "main" && (<>
-        {/* Настройки */}
-        <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3">
-          <div className="section-label">НАСТРОЙКИ</div>
+        {/* ─── СЧЁТ 1: Скальпинг (быстрый доход) ─── */}
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3" style={{ borderColor: "var(--cyber-yellow)" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-orbitron text-xs font-bold text-[var(--cyber-yellow)]">СЧЁТ 1 — СКАЛЬПИНГ</div>
+              <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">Быстрый доход · Малые суммы · Частые входы</div>
+            </div>
+            <div className={`px-2 py-0.5 font-mono text-[10px] border ${scalpEnabled ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+              {scalpEnabled ? "ВКЛ" : "ВЫКЛ"}
+            </div>
+          </div>
 
-          {/* Брокерский счёт */}
           {scStatus?.accounts && scStatus.accounts.length > 0 && (
             <div>
               <div className="section-label text-[10px] mb-1">Брокерский счёт Т-Банк</div>
@@ -3346,9 +3379,6 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
                   <option key={a.id} value={a.id}>{a.name || a.id}</option>
                 ))}
               </select>
-              <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-1">
-                Выбери счёт, с которого скальпер будет торговать
-              </div>
             </div>
           )}
 
@@ -3380,6 +3410,53 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
               {scanning ? <Spinner /> : <Icon name="Search" size={12} />} СКАН
             </button>
           </div>
+        </div>
+
+        {/* ─── СЧЁТ 2: Автобот (крупные сделки) ─── */}
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3" style={{ borderColor: "var(--cyber-cyan)" }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-orbitron text-xs font-bold text-[var(--cyber-cyan)]">СЧЁТ 2 — АВТОБОТ</div>
+              <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">Крупные сделки · Долгосрочная прибыль · Независимый анализ</div>
+            </div>
+            <button onClick={() => setEnabled2(v => !v)}
+              className={`px-3 py-1 font-mono text-[10px] border rounded-none transition-all ${enabled2 ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+              {enabled2 ? "ВКЛ" : "ВЫКЛ"}
+            </button>
+          </div>
+
+          {scStatus?.accounts && scStatus.accounts.length > 0 && (
+            <div>
+              <div className="section-label text-[10px] mb-1">Брокерский счёт Т-Банк</div>
+              <select value={accountId2} onChange={e => setAccountId2(e.target.value)}
+                className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-cyan)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-yellow)] appearance-none cursor-pointer">
+                {scStatus.accounts.map(a => (
+                  <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: "Цель прибыли %", val: targetPct2, set: setTargetPct2 },
+              { label: "Стоп-лосс %", val: stopPct2, set: setStopPct2 },
+            ].map(f => (
+              <div key={f.label}>
+                <div className="section-label text-[10px] mb-1">{f.label}</div>
+                <input value={f.val} onChange={e => f.set(e.target.value)} type="number" step="0.1" min="0.1"
+                  className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)]" />
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="section-label text-[10px] mb-1">Сумма на сделку ₽</div>
+            <input value={amount2} onChange={e => setAmount2(e.target.value)} type="number" min="1000"
+              className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)]" />
+          </div>
+          <button onClick={saveSettings2} disabled={saving2} className="w-full py-2 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40">
+            {saving2 ? "..." : "СОХРАНИТЬ СЧЁТ 2"}
+          </button>
         </div>
 
         {/* Кандидаты */}
