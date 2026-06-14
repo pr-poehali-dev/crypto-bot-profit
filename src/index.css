@@ -90,32 +90,31 @@
   }
 }
 
-/* ===== МОБИЛЕ: страница скроллится как обычный сайт ===== */
-@media (max-width: 767px) {
-  html,
-  body {
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
+/* ===== Layout ===== */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+@media (min-width: 768px) {
+  body,
   #root {
-    display: block !important;
-    height: auto !important;
-    min-height: 100dvh;
+    height: 100%;
+    overflow: hidden;
   }
 }
 
-/* ===== ПК: app-layout ===== */
-@media (min-width: 768px) {
-  html,
+@media (max-width: 767px) {
   body {
-    height: 100%;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   #root {
-    height: 100%;
-    overflow: hidden;
-    display: flex !important;
-    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
   }
 }
 

@@ -4950,8 +4950,16 @@ export default function Index() {
 function AppShell({ user, onLogout }: { user: { username: string; role: string }; onLogout: () => void }) {
   const [activeSection, setActiveSection] = useState("dashboard");
   const [botRunning, setBotRunning] = useState(true);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   // На мобиле сайдбар закрыт по умолчанию
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
   const [time, setTime] = useState(new Date());
 
   // Счётчик для принудительного обновления баланса Т-Банк
@@ -5114,7 +5122,11 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
   ];
 
   return (
-    <div className="cyber-bg md:flex md:flex-row md:flex-1 md:overflow-hidden" style={{ fontFamily: "'IBM Plex Sans', sans-serif", color: "var(--cyber-text)" }}>
+    <div className="cyber-bg" style={{
+      fontFamily: "'IBM Plex Sans', sans-serif",
+      color: "var(--cyber-text)",
+      ...(isMobile ? {} : { display: "flex", flexDirection: "row", height: "100%", overflow: "hidden" }),
+    }}>
 
       {/* Мобильный оверлей при открытом меню */}
       {sidebarOpen && (
@@ -5191,7 +5203,10 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       </aside>
 
       {/* Основной контент */}
-      <div className="md:flex-1 md:flex md:flex-col md:min-w-0 md:overflow-hidden" style={{ paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px))" }}>
+      <div style={{
+        paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px))",
+        ...(isMobile ? {} : { flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }),
+      }}>
 
         {/* Хедер */}
         <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
@@ -5244,7 +5259,10 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
         </header>
 
         {/* Контент */}
-        <main className="p-3 md:p-5 md:flex-1 md:overflow-y-auto" style={{ overflowX: "hidden" }}>{renderContent()}</main>
+        <main className="p-3 md:p-5" style={{
+          overflowX: "hidden",
+          ...(isMobile ? {} : { flex: 1, overflowY: "auto" }),
+        }}>{renderContent()}</main>
       </div>
 
       {/* Нижняя навигация — только на мобиле */}
