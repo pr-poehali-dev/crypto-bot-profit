@@ -4660,42 +4660,55 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       <div className="py-16 px-4 max-w-5xl mx-auto">
         <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-2">ТАРИФЫ</div>
         <div className="font-mono text-xs text-center text-[var(--cyber-text-dim)] mb-10">Начни бесплатно — перейди на PRO когда будешь готов</div>
-        <div className="grid grid-cols-3 gap-2 sm:gap-6">
+        {/* ПК — окно с рамкой */}
+        <div className="hidden md:block p-6" style={{ border: "1px solid var(--cyber-border)", background: "rgba(0,212,255,0.02)", boxShadow: "0 0 60px rgba(0,212,255,0.06)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+            {plans.map((p, i) => (
+              <div key={p.name} style={{ display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", background: `linear-gradient(135deg, var(--cyber-surface) 0%, ${p.color}11 100%)`, border: `2px solid ${p.color}`, boxShadow: `0 0 30px ${p.color}22` }}>
+                <div style={{ height: 3, background: `linear-gradient(90deg, transparent, ${p.color}, transparent)` }} />
+                {p.badge && <div style={{ position: "absolute", top: 14, right: 0, background: p.color, color: "#000", fontFamily: "'Orbitron', monospace", fontSize: 8, fontWeight: 900, padding: "3px 10px 3px 6px", letterSpacing: "0.1em" }}>{p.badge}</div>}
+                <div style={{ padding: 20, display: "flex", flexDirection: "column", flex: 1 }}>
+                  <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 12, fontWeight: 900, color: p.color, letterSpacing: "0.15em", marginBottom: 10 }}>{p.name}</div>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, marginBottom: 2 }}>
+                    <span style={{ fontFamily: "'Orbitron', monospace", fontSize: 36, fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1 }}>{p.price === 0 ? "0" : p.price}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 14, color: p.color, marginBottom: 3 }}>₽</span>
+                  </div>
+                  <div style={{ fontFamily: "monospace", fontSize: 10, color: "var(--cyber-text-dim)", marginBottom: 16 }}>в месяц</div>
+                  <ul style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, marginBottom: 16 }}>
+                    {p.features.map(f => (
+                      <li key={f.text} style={{ display: "flex", gap: 7, fontFamily: "monospace", fontSize: 11 }}>
+                        <span style={{ color: f.ok ? p.color : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.35, flexShrink: 0, fontWeight: "bold" }}>{f.ok ? "✓" : "–"}</span>
+                        <span style={{ color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.35, lineHeight: 1.4 }}>{f.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <button onClick={onGetStarted} style={{ width: "100%", padding: "11px 0", fontFamily: "'Orbitron', monospace", fontSize: 10, fontWeight: 900, border: `2px solid ${p.color}`, color: i === 2 ? "#000" : p.color, background: i === 2 ? p.color : `${p.color}15`, cursor: "pointer", boxShadow: i === 2 ? `0 0 20px ${p.color}44` : "none" }}>
+                    {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ →"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Мобайл — компактные карточки в ряд */}
+        <div className="md:hidden" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
           {plans.map((p, i) => (
-            <div key={p.name} className="flex flex-col relative overflow-hidden"
-              style={{
-                background: `linear-gradient(135deg, var(--cyber-surface) 0%, ${p.color}11 100%)`,
-                border: `2px solid ${p.color}`,
-                padding: 0,
-                boxShadow: `0 0 40px ${p.color}22, inset 0 0 40px ${p.color}08`,
-              }}>
-              {/* Цветная полоса сверху */}
-              <div style={{ height: 4, background: `linear-gradient(90deg, transparent, ${p.color}, transparent)` }} />
-              {p.badge && (
-                <div style={{ position: "absolute", top: 16, right: 0, background: p.color, color: "#000", fontFamily: "'Orbitron', monospace", fontSize: 9, fontWeight: 900, padding: "4px 12px 4px 8px", letterSpacing: "0.12em" }}>
-                  {p.badge}
-                </div>
-              )}
-              <div style={{ padding: "clamp(10px,3vw,24px)", display: "flex", flexDirection: "column", flex: 1 }}>
-                <div style={{ fontFamily: "'Orbitron', monospace", fontSize: "clamp(9px,2.5vw,13px)", fontWeight: 900, color: p.color, letterSpacing: "0.1em", marginBottom: 8 }}>{p.name}</div>
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 2, marginBottom: 2 }}>
-                  <span style={{ fontFamily: "'Orbitron', monospace", fontSize: "clamp(20px,5vw,40px)", fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1 }}>
-                    {p.price === 0 ? "0" : p.price}
-                  </span>
-                  <span style={{ fontFamily: "monospace", fontSize: "clamp(10px,2vw,16px)", color: p.color, marginBottom: 2 }}>₽</span>
-                </div>
-                <div style={{ fontFamily: "monospace", fontSize: "clamp(9px,1.8vw,11px)", color: "var(--cyber-text-dim)", marginBottom: 12 }}>/ мес</div>
-                <ul style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+            <div key={p.name} style={{ display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", background: `linear-gradient(135deg, var(--cyber-surface) 0%, ${p.color}11 100%)`, border: `2px solid ${p.color}` }}>
+              <div style={{ height: 3, background: `linear-gradient(90deg, transparent, ${p.color}, transparent)` }} />
+              <div style={{ padding: "10px 8px", display: "flex", flexDirection: "column", flex: 1 }}>
+                <div style={{ fontFamily: "'Orbitron', monospace", fontSize: "clamp(8px,2.5vw,11px)", fontWeight: 900, color: p.color, marginBottom: 6 }}>{p.name}</div>
+                <div style={{ fontFamily: "'Orbitron', monospace", fontSize: "clamp(16px,5vw,26px)", fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1, marginBottom: 1 }}>{p.price === 0 ? "0" : p.price}<span style={{ fontSize: "clamp(9px,2vw,12px)", color: p.color }}>₽</span></div>
+                <div style={{ fontFamily: "monospace", fontSize: "clamp(8px,1.8vw,10px)", color: "var(--cyber-text-dim)", marginBottom: 10 }}>/ мес</div>
+                <ul style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
                   {p.features.map(f => (
-                    <li key={f.text} style={{ display: "flex", alignItems: "flex-start", gap: 5, fontFamily: "monospace", fontSize: "clamp(9px,1.8vw,12px)" }}>
-                      <span style={{ color: f.ok ? p.color : "var(--cyber-text-dim)", flexShrink: 0, opacity: f.ok ? 1 : 0.35, fontWeight: "bold" }}>{f.ok ? "✓" : "–"}</span>
-                      <span style={{ color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.35, lineHeight: 1.3 }}>{f.text}</span>
+                    <li key={f.text} style={{ display: "flex", gap: 4, fontFamily: "monospace", fontSize: "clamp(8px,1.8vw,10px)", color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.35 }}>
+                      <span style={{ color: f.ok ? p.color : "var(--cyber-text-dim)", flexShrink: 0 }}>{f.ok ? "✓" : "–"}</span>
+                      {f.text}
                     </li>
                   ))}
                 </ul>
-                <button onClick={onGetStarted}
-                  style={{ width: "100%", padding: "clamp(8px,2vw,13px) 0", fontFamily: "'Orbitron', monospace", fontSize: "clamp(8px,1.8vw,11px)", fontWeight: 900, border: `2px solid ${p.color}`, color: i === 2 ? "#000" : p.color, background: i === 2 ? p.color : `${p.color}15`, cursor: "pointer", transition: "all 0.2s", boxShadow: i === 2 ? `0 0 20px ${p.color}55` : "none" }}>
-                  {i === 0 ? "FREE" : "ВЫБРАТЬ"}
+                <button onClick={onGetStarted} style={{ width: "100%", padding: "7px 0", fontFamily: "'Orbitron', monospace", fontSize: "clamp(7px,2vw,9px)", fontWeight: 900, border: `1px solid ${p.color}`, color: i === 2 ? "#000" : p.color, background: i === 2 ? p.color : "transparent", cursor: "pointer" }}>
+                  {i === 0 ? "FREE" : "OK →"}
                 </button>
               </div>
             </div>
