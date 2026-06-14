@@ -13,6 +13,15 @@
       "expectedStatus": 401,
       "expectedBody": {"ok": false},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "forgot_password — нет пользователя",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "forgot_password", "username": "nonexistent_xyz", "email": "no@no.com"},
+      "expectedStatus": 404,
+      "expectedBody": {"ok": false},
+      "bodyMatcher": "partial"
     }
   ]
 }

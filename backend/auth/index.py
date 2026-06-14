@@ -300,6 +300,23 @@ def handler(event: dict, context) -> dict:
             db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE username = %s", (new_hash, uname))
             return resp({"ok": True, "hash": new_hash})
 
+        # ── Забыл пароль (по username + email) ───────────────────────────
+        if action == "forgot_password":
+            username = body.get("username", "").strip().lower()
+            email = body.get("email", "").strip().lower()
+            if not username or not email:
+                return resp({"ok": False, "error": "Введи логин и email"}, 400)
+            rows = db(f"SELECT id, email FROM {SCHEMA}.users WHERE username = %s", (username,))
+            if not rows:
+                return resp({"ok": False, "error": "Пользователь не найден"}, 404)
+            u = rows[0]
+            if not u["email"] or u["email"].lower() != email:
+                return resp({"ok": False, "error": "Email не совпадает с указанным при регистрации"}, 400)
+            # Генерируем временный пароль
+            new_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
+            db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE id = %s", (hash_pw(new_pw), u["id"]))
+            return resp({"ok": True, "new_password": new_pw})
+
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 
     return resp({"error": "Метод не поддерживается"}, 405)

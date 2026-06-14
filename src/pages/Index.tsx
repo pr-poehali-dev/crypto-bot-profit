@@ -88,7 +88,7 @@ function AuthInput({ label, value, onChange, type = "text", placeholder = "", au
 }
 
 function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: string; role: string }, isNew?: boolean) => void }) {
-  const [tab, setTab] = useState<"login" | "register">("login");
+  const [tab, setTab] = useState<"login" | "register" | "forgot">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
@@ -96,19 +96,28 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [newPassword, setNewPassword] = useState("");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setError(""); setSuccess("");
+    setLoading(true); setError(""); setSuccess(""); setNewPassword("");
     try {
-      const body = tab === "login"
-        ? { action: "login", username, password }
-        : { action: "register", username, password, email, ref_code: refCode };
-      const r = await fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const d = await r.json();
-      if (d.ok) {
-        onLogin(d.session_id, d.user, tab === "register");
-      } else setError(d.error || "Ошибка");
+      if (tab === "forgot") {
+        const r = await fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "forgot_password", username, email }) });
+        const d = await r.json();
+        if (d.ok) {
+          setNewPassword(d.new_password);
+          setSuccess("Временный пароль сгенерирован — запиши его!");
+        } else setError(d.error || "Ошибка");
+      } else {
+        const body = tab === "login"
+          ? { action: "login", username, password }
+          : { action: "register", username, password, email, ref_code: refCode };
+        const r = await fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const d = await r.json();
+        if (d.ok) onLogin(d.session_id, d.user, tab === "register");
+        else setError(d.error || "Ошибка");
+      }
     } catch { setError("Ошибка соединения"); }
     setLoading(false);
   };
@@ -116,7 +125,7 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
   return (
     <div className="cyber-bg min-h-screen flex items-center justify-center p-4" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
       <div className="w-full max-w-sm">
-        <div className="text-center mb-6 animate-fade-in-up">
+        <div className="text-center mb-6">
           <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center" style={{ border: "2px solid var(--cyber-green)", boxShadow: "0 0 30px rgba(0,255,136,0.4)" }}>
             <Icon name="Bot" size={32} style={{ color: "var(--cyber-green)" }} />
           </div>
@@ -125,21 +134,35 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
         </div>
 
         {/* Переключатель */}
-        <div className="flex mb-4 border border-[var(--cyber-border)] rounded-none overflow-hidden animate-fade-in-up">
+        <div className="flex mb-4 border border-[var(--cyber-border)] rounded-none overflow-hidden">
           {(["login", "register"] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); setError(""); setSuccess(""); }}
+            <button key={t} onClick={() => { setTab(t); setError(""); setSuccess(""); setNewPassword(""); }}
               className={`flex-1 py-2 font-mono text-xs transition-all ${tab === t ? "bg-[rgba(0,255,136,0.1)] text-[var(--cyber-green)]" : "text-[var(--cyber-text-dim)]"}`}>
               {t === "login" ? "ВОЙТИ" : "РЕГИСТРАЦИЯ"}
             </button>
           ))}
         </div>
 
-        <form onSubmit={submit} className="cyber-card-glow rounded-none p-5 space-y-3 animate-fade-in-up">
+        <form onSubmit={submit} className="cyber-card-glow rounded-none p-5 space-y-3">
           {error && <div className="border border-[var(--cyber-red)] p-2.5 font-mono text-xs text-[var(--cyber-red)] text-center">{error}</div>}
           {success && <div className="border border-[var(--cyber-green)] p-2.5 font-mono text-xs neon-text text-center">{success}</div>}
+          {newPassword && (
+            <div className="border-2 border-[var(--cyber-yellow)] p-3 text-center space-y-1" style={{ background: "rgba(255,170,0,0.08)" }}>
+              <div className="font-mono text-[10px] text-[var(--cyber-yellow)]">ВРЕМЕННЫЙ ПАРОЛЬ:</div>
+              <div className="font-orbitron text-lg font-black text-[var(--cyber-yellow)] tracking-widest select-all">{newPassword}</div>
+              <div className="font-mono text-[9px] text-[var(--cyber-text-dim)]">Запиши и смени в профиле после входа</div>
+            </div>
+          )}
 
           <AuthInput label="Логин" value={username} onChange={setUsername} placeholder="raziklon" autoComplete="username" />
-          <AuthInput label="Пароль" value={password} onChange={setPassword} type="password" placeholder="••••••••" autoComplete={tab === "login" ? "current-password" : "new-password"} />
+
+          {tab !== "forgot" && (
+            <AuthInput label="Пароль" value={password} onChange={setPassword} type="password" placeholder="••••••••" autoComplete={tab === "login" ? "current-password" : "new-password"} />
+          )}
+
+          {tab === "forgot" && (
+            <AuthInput label="Email (указанный при регистрации)" value={email} onChange={setEmail} placeholder="your@email.com" autoComplete="email" />
+          )}
 
           {tab === "register" && (<>
             <AuthInput label="Email (необязательно)" value={email} onChange={setEmail} placeholder="your@email.com" autoComplete="email" />
@@ -149,11 +172,28 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
             </div>
           </>)}
 
-          <button type="submit" disabled={loading || !username || !password}
+          <button type="submit" disabled={loading || !username || (tab !== "forgot" && !password) || (tab === "forgot" && !email)}
             className="w-full py-3 font-orbitron text-sm font-bold rounded-none transition-all border disabled:opacity-40 flex items-center justify-center gap-2"
-            style={{ borderColor: "var(--cyber-green)", color: "var(--cyber-green)", background: loading ? "rgba(0,255,136,0.1)" : "transparent" }}>
-            {loading ? <><div className="w-4 h-4 border border-[var(--cyber-green)] border-t-transparent rounded-full animate-spin" /><span>...</span></> : tab === "login" ? "ВОЙТИ В СИСТЕМУ" : "СОЗДАТЬ АККАУНТ"}
+            style={{ borderColor: tab === "forgot" ? "var(--cyber-yellow)" : "var(--cyber-green)", color: tab === "forgot" ? "var(--cyber-yellow)" : "var(--cyber-green)", background: loading ? "rgba(0,255,136,0.1)" : "transparent" }}>
+            {loading
+              ? <><div className="w-4 h-4 border border-current border-t-transparent rounded-full animate-spin" /><span>...</span></>
+              : tab === "login" ? "ВОЙТИ В СИСТЕМУ"
+              : tab === "register" ? "СОЗДАТЬ АККАУНТ"
+              : "ПОЛУЧИТЬ НОВЫЙ ПАРОЛЬ"}
           </button>
+
+          {tab === "login" && (
+            <button type="button" onClick={() => { setTab("forgot"); setError(""); setSuccess(""); setNewPassword(""); }}
+              className="w-full text-center font-mono text-[10px] text-[var(--cyber-text-dim)] hover:text-[var(--cyber-yellow)] transition-all py-1">
+              Забыл пароль?
+            </button>
+          )}
+          {tab === "forgot" && (
+            <button type="button" onClick={() => { setTab("login"); setError(""); setSuccess(""); setNewPassword(""); }}
+              className="w-full text-center font-mono text-[10px] text-[var(--cyber-text-dim)] hover:text-[var(--cyber-cyan)] transition-all py-1">
+              ← Вернуться к входу
+            </button>
+          )}
         </form>
 
         <div className="text-center mt-3 font-mono text-[10px] text-[var(--cyber-text-dim)]">
