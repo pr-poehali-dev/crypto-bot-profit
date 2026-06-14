@@ -85,6 +85,8 @@
 
   body {
     @apply bg-background text-foreground;
+    background-color: var(--cyber-bg);
+    color: var(--cyber-text);
   }
 }
 
