@@ -4586,18 +4586,21 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       </div>
 
       {/* Features */}
-      <div id="features" className="px-4 py-16 max-w-4xl mx-auto">
-        <div className="font-orbitron text-2xl font-bold text-center neon-text-cyan mb-10">ВОЗМОЖНОСТИ</div>
-        <div className="overflow-y-auto max-h-[420px] pr-1 mb-8" style={{ scrollbarWidth: "thin", scrollbarColor: "var(--cyber-green) var(--cyber-bg-3)" }}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {features.map(f => (
-              <div key={f.title} className="cyber-card rounded-none p-4 hover:border-[var(--cyber-green)] transition-all">
-                <Icon name={f.icon} size={24} className="mb-3" style={{ color: "var(--cyber-green)" }} />
-                <div className="font-orbitron text-sm font-bold text-[var(--cyber-text)] mb-1">{f.title}</div>
-                <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">{f.desc}</div>
+      <div id="features" className="px-4 py-16 max-w-5xl mx-auto">
+        <div className="font-orbitron text-2xl font-bold text-center neon-text-cyan mb-2">ВОЗМОЖНОСТИ</div>
+        <div className="font-mono text-xs text-center text-[var(--cyber-text-dim)] mb-10">Всё что нужно для автоматической торговли</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
+          {features.map((f, i) => (
+            <div key={f.title} className="cyber-card rounded-none p-5 hover:border-[var(--cyber-green)] transition-all group"
+              style={{ animationDelay: `${i * 0.05}s` }}>
+              <div className="w-10 h-10 flex items-center justify-center mb-4"
+                style={{ border: "1px solid var(--cyber-border)", background: "rgba(0,255,136,0.05)" }}>
+                <Icon name={f.icon} size={20} style={{ color: "var(--cyber-green)" }} />
               </div>
-            ))}
-          </div>
+              <div className="font-orbitron text-sm font-bold text-[var(--cyber-text)] mb-2">{f.title}</div>
+              <div className="font-mono text-xs leading-relaxed" style={{ color: "var(--cyber-text-dim)" }}>{f.desc}</div>
+            </div>
+          ))}
         </div>
         <div className="text-center">
           <button onClick={onGetStarted}
@@ -4609,39 +4612,37 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
       </div>
 
       {/* Pricing */}
-      <div className="py-16 px-4 max-w-4xl mx-auto">
-        <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-10">ТАРИФЫ</div>
-        <div style={{ maxHeight: 480, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin", scrollbarColor: "var(--cyber-yellow) var(--cyber-bg-3)", paddingRight: 4 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {plans.map((p, i) => (
-              <div key={p.name} style={{ background: "var(--cyber-surface)", border: `2px solid ${p.badge ? p.color : "var(--cyber-border)"}`, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 12, boxShadow: p.badge ? `0 0 24px ${p.color}33` : "none" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                  <div>
-                    {p.badge && <div style={{ fontFamily: "monospace", fontSize: 10, color: p.color, letterSpacing: "0.1em", marginBottom: 2 }}>{p.badge}</div>}
-                    <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 18, fontWeight: 900, color: p.color }}>{p.name}</div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 28, fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1 }}>
-                      {p.price === 0 ? "0 ₽" : `${p.price} ₽`}
-                    </div>
-                    <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)" }}>в месяц</div>
-                  </div>
+      <div className="py-16 px-4 max-w-5xl mx-auto">
+        <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-2">ТАРИФЫ</div>
+        <div className="font-mono text-xs text-center text-[var(--cyber-text-dim)] mb-10">Начни бесплатно — перейди на PRO когда будешь готов</div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {plans.map((p, i) => (
+            <div key={p.name} className="flex flex-col"
+              style={{ background: "var(--cyber-surface)", border: `2px solid ${p.badge ? p.color : "var(--cyber-border)"}`, padding: 24, boxShadow: p.badge ? `0 0 30px ${p.color}22` : "none", position: "relative" }}>
+              {p.badge && (
+                <div style={{ position: "absolute", top: -1, right: 16, background: p.color, color: "#000", fontFamily: "monospace", fontSize: 9, fontWeight: 900, padding: "2px 8px", letterSpacing: "0.1em" }}>
+                  {p.badge}
                 </div>
-                <ul style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px" }}>
-                  {p.features.map(f => (
-                    <li key={f.text} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: "monospace", fontSize: 11, color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.4, textDecoration: f.ok ? "none" : "line-through" }}>
-                      <span style={{ color: f.ok ? p.color : "var(--cyber-border)", flexShrink: 0 }}>{f.ok ? "✓" : "✕"}</span>
-                      {f.text}
-                    </li>
-                  ))}
-                </ul>
-                <button onClick={onGetStarted}
-                  style={{ alignSelf: "flex-start", padding: "8px 24px", fontFamily: "'Orbitron', monospace", fontSize: 11, fontWeight: "bold", border: `2px solid ${p.color}`, color: p.color, background: p.badge ? `${p.color}18` : "transparent", cursor: "pointer" }}>
-                  {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ ТАРИФ →"}
-                </button>
+              )}
+              <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 16, fontWeight: 900, color: p.color, marginBottom: 8 }}>{p.name}</div>
+              <div style={{ fontFamily: "'Orbitron', monospace", fontSize: 32, fontWeight: 900, color: "var(--cyber-text)", lineHeight: 1, marginBottom: 4 }}>
+                {p.price === 0 ? "0 ₽" : `${p.price} ₽`}
               </div>
-            ))}
-          </div>
+              <div style={{ fontFamily: "monospace", fontSize: 11, color: "var(--cyber-text-dim)", marginBottom: 20 }}>в месяц</div>
+              <ul style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {p.features.map(f => (
+                  <li key={f.text} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontFamily: "monospace", fontSize: 12, color: f.ok ? "var(--cyber-text)" : "var(--cyber-text-dim)", opacity: f.ok ? 1 : 0.4 }}>
+                    <span style={{ color: f.ok ? p.color : "var(--cyber-border)", flexShrink: 0, marginTop: 1 }}>{f.ok ? "✓" : "–"}</span>
+                    {f.text}
+                  </li>
+                ))}
+              </ul>
+              <button onClick={onGetStarted}
+                style={{ width: "100%", padding: "12px 0", fontFamily: "'Orbitron', monospace", fontSize: 11, fontWeight: "bold", border: `2px solid ${p.color}`, color: p.badge ? "#000" : p.color, background: p.badge ? p.color : "transparent", cursor: "pointer", transition: "all 0.2s" }}>
+                {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ →"}
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 
