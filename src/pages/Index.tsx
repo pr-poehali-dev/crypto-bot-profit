@@ -5125,7 +5125,10 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
     <div className="cyber-bg" style={{
       fontFamily: "'IBM Plex Sans', sans-serif",
       color: "var(--cyber-text)",
-      ...(isMobile ? {} : { display: "flex", flexDirection: "row", height: "100%", overflow: "hidden" }),
+      ...(isMobile
+        ? { position: "fixed", inset: 0, display: "flex", flexDirection: "column", overflow: "hidden" }
+        : { display: "flex", flexDirection: "row", height: "100%", overflow: "hidden" }
+      ),
     }}>
 
       {/* Мобильный оверлей при открытом меню */}
@@ -5203,10 +5206,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       </aside>
 
       {/* Основной контент */}
-      <div style={{
-        paddingBottom: "calc(4rem + env(safe-area-inset-bottom, 0px))",
-        ...(isMobile ? {} : { flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }),
-      }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
 
         {/* Хедер */}
         <header className="flex items-center justify-between px-3 md:px-5 py-2.5 border-b sticky top-0 z-30"
@@ -5258,10 +5258,14 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
           </div>
         </header>
 
-        {/* Контент */}
-        <main className="p-3 md:p-5" style={{
+        {/* Контент — скроллится на мобиле и ПК */}
+        <main style={{
+          flex: 1,
+          overflowY: "auto",
           overflowX: "hidden",
-          ...(isMobile ? {} : { flex: 1, overflowY: "auto" }),
+          WebkitOverflowScrolling: "touch",
+          padding: isMobile ? "12px" : "20px",
+          paddingBottom: isMobile ? "calc(4.5rem + env(safe-area-inset-bottom, 12px))" : "20px",
         }}>{renderContent()}</main>
       </div>
 
