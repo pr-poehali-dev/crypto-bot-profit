@@ -1,6 +1,50 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 
+// ── Тарифные планы (единый источник правды) ──────────────────────────────────
+const PLAN_INFO = {
+  free: {
+    name: "FREE", price: 0, color: "var(--cyber-text-dim)",
+    badge: "",
+    features: [
+      { text: "Просмотр портфеля и баланса",    ok: true },
+      { text: "Ручная торговля Т-Банк",          ok: true },
+      { text: "История сделок",                  ok: true },
+      { text: "Реферальная программа",           ok: true },
+      { text: "Автотрейдинг (RSI/EMA/MACD)",    ok: false },
+      { text: "Авто-продажа портфеля по %",      ok: false },
+      { text: "Скальпинг-бот (до 8 сделок/день)", ok: false },
+    ],
+  },
+  basic: {
+    name: "BASIC", price: 490, color: "var(--cyber-cyan)",
+    badge: "",
+    features: [
+      { text: "Просмотр портфеля и баланса",    ok: true },
+      { text: "Ручная торговля Т-Банк",          ok: true },
+      { text: "История сделок",                  ok: true },
+      { text: "Реферальная программа",           ok: true },
+      { text: "Автотрейдинг (RSI/EMA/MACD)",    ok: true },
+      { text: "Авто-продажа портфеля по %",      ok: true },
+      { text: "Скальпинг-бот (до 8 сделок/день)", ok: false },
+    ],
+  },
+  pro: {
+    name: "PRO", price: 990, color: "var(--cyber-yellow)",
+    badge: "⭐ ЛУЧШИЙ ВЫБОР",
+    features: [
+      { text: "Просмотр портфеля и баланса",    ok: true },
+      { text: "Ручная торговля Т-Банк",          ok: true },
+      { text: "История сделок",                  ok: true },
+      { text: "Реферальная программа",           ok: true },
+      { text: "Автотрейдинг (RSI/EMA/MACD)",    ok: true },
+      { text: "Авто-продажа портфеля по %",      ok: true },
+      { text: "Скальпинг-бот (до 8 сделок/день)", ok: true },
+    ],
+  },
+} as const;
+type PlanKey = keyof typeof PLAN_INFO;
+
 const MARKET_URL = "https://functions.poehali.dev/66dbea62-7575-4dac-8ab1-f42bce82db7b";
 const PAYMENT_URL = "https://functions.poehali.dev/373f750f-9364-43a8-8020-4f3f2cda099f";
 const TRADE_URL = "https://functions.poehali.dev/5af36d81-ec5d-4557-996a-036e428dad76";
@@ -43,7 +87,7 @@ function AuthInput({ label, value, onChange, type = "text", placeholder = "", au
   );
 }
 
-function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: string; role: string }) => void }) {
+function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: string; role: string }, isNew?: boolean) => void }) {
   const [tab, setTab] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -63,8 +107,7 @@ function LoginPage({ onLogin }: { onLogin: (sid: string, user: { username: strin
       const r = await fetch(AUTH_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (d.ok) {
-        if (tab === "register") setSuccess(`✓ Аккаунт создан! Твой реф-код: ${d.ref_code}`);
-        setTimeout(() => onLogin(d.session_id, d.user), tab === "register" ? 1500 : 0);
+        onLogin(d.session_id, d.user, tab === "register");
       } else setError(d.error || "Ошибка");
     } catch { setError("Ошибка соединения"); }
     setLoading(false);
@@ -3485,29 +3528,28 @@ function PaymentGatewayPanel() {
 
 /* ===== SUBSCRIBE BUTTON (для пользователей) ===== */
 function SubscribeButton({ currentPlan }: { currentPlan: string }) {
-  const [open, setOpen]     = useState(false);
+  const [open, setOpen]       = useState(false);
+  const [selected, setSelected] = useState<PlanKey>("pro");
   const [loading, setLoading] = useState(false);
   const [provider, setProvider] = useState<"robokassa" | "yookassa">("robokassa");
   const [payStatus, setPayStatus] = useState<{ robokassa: boolean; yookassa: boolean }>({ robokassa: false, yookassa: false });
-  const [plans, setPlans]   = useState<Record<string, { name: string; price_rub: number; desc: string }>>({});
-  const [msg, setMsg]       = useState<{ text: string; ok: boolean } | null>(null);
+  const [msg, setMsg]         = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     authFetch(`${PAYMENT_URL}?action=status`).then(r => r.json()).then(d => {
-      if (d.plans)     setPlans(d.plans);
       if (d.robokassa) setPayStatus({ robokassa: d.robokassa.connected, yookassa: d.yookassa.connected });
     });
   }, []);
 
-  const pay = async (plan: string) => {
+  const pay = async () => {
     if (!payStatus.robokassa && !payStatus.yookassa) {
-      setMsg({ text: "Платёжные системы не подключены. Обратитесь к администратору.", ok: false });
+      setMsg({ text: "Платёжные системы не подключены. Напишите администратору.", ok: false });
       return;
     }
     setLoading(true);
     const r = await authFetch(PAYMENT_URL, {
       method: "POST",
-      body: JSON.stringify({ action: "create_payment", plan, provider, return_url: window.location.href }),
+      body: JSON.stringify({ action: "create_payment", plan: selected, provider, return_url: window.location.href }),
     });
     const d = await r.json();
     setLoading(false);
@@ -3519,71 +3561,100 @@ function SubscribeButton({ currentPlan }: { currentPlan: string }) {
     }
   };
 
-  if (currentPlan !== "free") return (
-    <div className="cyber-card rounded-none p-3 border border-[rgba(0,255,136,0.2)] font-mono text-xs text-center">
-      <span className="neon-text font-bold">✓ {currentPlan.toUpperCase()}</span>
-      <span className="text-[var(--cyber-text-dim)]"> — подписка активна</span>
-    </div>
-  );
+  // Активная подписка
+  if (currentPlan !== "free") {
+    const info = PLAN_INFO[currentPlan as PlanKey] ?? PLAN_INFO.free;
+    return (
+      <div className="cyber-card rounded-none p-4 border animate-fade-in-up" style={{ borderColor: `${info.color}44` }}>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="font-orbitron text-xs font-bold" style={{ color: info.color }}>✓ {info.name} — активна</div>
+            <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{info.price} ₽/мес</div>
+          </div>
+          <Icon name="CheckCircle" size={20} style={{ color: info.color }} />
+        </div>
+        <ul className="space-y-1">
+          {info.features.map(f => (
+            <li key={f.text} className={`font-mono text-[10px] flex items-center gap-1.5 ${f.ok ? "text-[var(--cyber-text-dim)]" : "opacity-30 line-through"}`}>
+              <span style={{ color: f.ok ? info.color : "transparent" }}>✓</span> {f.text}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <button onClick={() => setOpen(!open)}
-        className="w-full py-3 font-orbitron text-xs font-bold border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all flex items-center justify-center gap-2">
+        className="w-full py-3 font-orbitron text-xs font-bold border-2 border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all flex items-center justify-center gap-2"
+        style={{ boxShadow: open ? "0 0 15px rgba(0,212,255,0.2)" : "none" }}>
         <Icon name="Star" size={13} /> ОФОРМИТЬ ПОДПИСКУ
       </button>
 
       {open && (
-        <div className="cyber-card rounded-none p-4 space-y-3 animate-fade-in-up">
+        <div className="animate-fade-in-up space-y-3">
           {msg && <div className={`p-2 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
 
-          {/* Выбор провайдера */}
+          {/* Карточки тарифов */}
+          <div className="grid grid-cols-2 gap-2">
+            {(["basic", "pro"] as PlanKey[]).map(key => {
+              const p = PLAN_INFO[key];
+              const isSelected = selected === key;
+              return (
+                <button key={key} onClick={() => setSelected(key)}
+                  className="rounded-none p-3 text-left border-2 transition-all"
+                  style={{ borderColor: isSelected ? p.color : "var(--cyber-border)", background: isSelected ? `${p.color}11` : "transparent" }}>
+                  {p.badge && <div className="font-mono text-[9px] mb-1" style={{ color: p.color }}>{p.badge}</div>}
+                  <div className="font-orbitron text-xs font-black" style={{ color: p.color }}>{p.name}</div>
+                  <div className="font-orbitron text-lg font-black text-[var(--cyber-text)] mt-0.5">{p.price} ₽<span className="font-mono text-[9px] text-[var(--cyber-text-dim)]">/мес</span></div>
+                  <ul className="mt-2 space-y-0.5">
+                    {p.features.map(f => (
+                      <li key={f.text} className={`font-mono text-[9px] flex items-start gap-1 ${f.ok ? "text-[var(--cyber-text-dim)]" : "opacity-25 line-through"}`}>
+                        <span className="flex-shrink-0" style={{ color: f.ok ? p.color : "transparent" }}>✓</span>
+                        {f.text}
+                      </li>
+                    ))}
+                  </ul>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Способ оплаты */}
           {(payStatus.robokassa || payStatus.yookassa) && (
-            <div>
-              <div className="section-label text-[10px] mb-1.5">СПОСОБ ОПЛАТЫ</div>
-              <div className="flex gap-2">
-                {payStatus.robokassa && (
-                  <button onClick={() => setProvider("robokassa")}
-                    className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all ${provider === "robokassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-                    Robokassa
-                  </button>
-                )}
-                {payStatus.yookassa && (
-                  <button onClick={() => setProvider("yookassa")}
-                    className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all ${provider === "yookassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-                    ЮKassa
-                  </button>
-                )}
-              </div>
+            <div className="flex gap-2">
+              {payStatus.robokassa && (
+                <button onClick={() => setProvider("robokassa")}
+                  className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all ${provider === "robokassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                  Robokassa
+                </button>
+              )}
+              {payStatus.yookassa && (
+                <button onClick={() => setProvider("yookassa")}
+                  className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all ${provider === "yookassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                  ЮKassa
+                </button>
+              )}
             </div>
           )}
 
-          {/* Тарифы */}
-          <div className="section-label text-[10px]">ВЫБЕРИ ТАРИФ</div>
-          <div className="space-y-2">
-            {Object.entries(plans).map(([key, p]) => (
-              <button key={key} onClick={() => pay(key)} disabled={loading || (!payStatus.robokassa && !payStatus.yookassa)}
-                className="w-full flex items-center justify-between p-3 border border-[var(--cyber-border)] hover:border-[var(--cyber-cyan)] rounded-none transition-all disabled:opacity-40 text-left">
-                <div>
-                  <div className="font-orbitron text-xs font-bold text-[var(--cyber-text)]">{p.name}</div>
-                  <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{p.desc}</div>
-                </div>
-                <div className="text-right flex-shrink-0 ml-3">
-                  <div className="font-orbitron text-sm font-bold neon-text-cyan">{p.price_rub} ₽</div>
-                  <div className="font-mono text-[9px] text-[var(--cyber-text-dim)]">/мес</div>
-                </div>
-              </button>
-            ))}
-          </div>
+          <button onClick={pay} disabled={loading}
+            className="w-full py-3 font-orbitron text-xs font-bold rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+            style={{ border: `2px solid ${PLAN_INFO[selected].color}`, color: PLAN_INFO[selected].color, background: `${PLAN_INFO[selected].color}11` }}>
+            {loading ? <><div className="w-3.5 h-3.5 border border-current border-t-transparent rounded-full animate-spin" /><span>...</span></> : <>
+              <Icon name="CreditCard" size={13} />
+              ОПЛАТИТЬ {PLAN_INFO[selected].price} ₽ / МЕС
+            </>}
+          </button>
 
           {!payStatus.robokassa && !payStatus.yookassa && (
             <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] p-2 border border-[var(--cyber-border)] text-center">
-              Платёжные системы временно недоступны.<br/>Для оплаты обратитесь к администратору.
+              Платёжные системы временно не настроены.<br/>Для подключения напишите администратору.
             </div>
           )}
-
           <div className="font-mono text-[9px] text-[var(--cyber-text-dim)] text-center">
-            После оплаты подписка активируется автоматически
+            🔒 Подписка активируется автоматически после оплаты · 30 дней
           </div>
         </div>
       )}
@@ -4283,11 +4354,7 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
     { icon: "Users",      title: "Реф. программа",       desc: "Приглашай друзей и получай % с каждой их сделки." },
     { icon: "Building2",  title: "Т-Банк Invest",        desc: "Прямое подключение через официальный Open API." },
   ];
-  const plans = [
-    { name: "FREE",  price: "0 ₽",   color: "var(--cyber-text-dim)",   features: ["Ручная торговля", "История сделок", "Реф. программа"] },
-    { name: "BASIC", price: "490 ₽", color: "var(--cyber-cyan)",       features: ["Всё из FREE", "Автотрейдинг", "Авто-продажа %"] },
-    { name: "PRO",   price: "990 ₽", color: "var(--cyber-yellow)",     features: ["Всё из BASIC", "Скальпинг бот", "До 8 сделок/день", "Приоритет поддержки"] },
-  ];
+  const plans = (["free", "basic", "pro"] as PlanKey[]).map(k => PLAN_INFO[k]);
   return (
     <div className="cyber-bg min-h-screen" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
       {/* Hero */}
@@ -4347,22 +4414,28 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
         <div className="font-orbitron text-2xl font-bold text-center text-[var(--cyber-yellow)] mb-10">ТАРИФЫ</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {plans.map((p, i) => (
-            <div key={p.name} className={`cyber-card rounded-none p-5 flex flex-col ${i === 2 ? "border-[var(--cyber-yellow)]" : ""}`}
-              style={{ borderColor: i === 2 ? "var(--cyber-yellow)" : undefined }}>
-              {i === 2 && <div className="font-mono text-[10px] text-[var(--cyber-yellow)] mb-2 tracking-widest">⭐ ЛУЧШИЙ ВЫБОР</div>}
+            <div key={p.name} className="cyber-card rounded-none p-5 flex flex-col"
+              style={{ borderColor: p.badge ? p.color : undefined }}>
+              {p.badge && <div className="font-mono text-[10px] mb-2 tracking-widest" style={{ color: p.color }}>{p.badge}</div>}
               <div className="font-orbitron text-base font-black mb-1" style={{ color: p.color }}>{p.name}</div>
-              <div className="font-orbitron text-2xl font-black text-[var(--cyber-text)] mb-4">{p.price}<span className="font-mono text-xs text-[var(--cyber-text-dim)]">/мес</span></div>
+              <div className="font-orbitron text-2xl font-black text-[var(--cyber-text)] mb-4">
+                {p.price === 0 ? "0 ₽" : `${p.price} ₽`}
+                <span className="font-mono text-xs text-[var(--cyber-text-dim)]">/мес</span>
+              </div>
               <ul className="space-y-1.5 mb-6 flex-1">
                 {p.features.map(f => (
-                  <li key={f} className="font-mono text-xs text-[var(--cyber-text-dim)] flex items-center gap-1.5">
-                    <span style={{ color: p.color }}>✓</span> {f}
+                  <li key={f.text} className={`font-mono text-xs flex items-center gap-1.5 ${f.ok ? "text-[var(--cyber-text)]" : "text-[var(--cyber-text-dim)] line-through opacity-40"}`}>
+                    <span style={{ color: f.ok ? p.color : "transparent", border: f.ok ? "none" : "1px solid var(--cyber-border)", borderRadius: "50%", width: 12, height: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, flexShrink: 0 }}>
+                      {f.ok ? "✓" : ""}
+                    </span>
+                    {f.text}
                   </li>
                 ))}
               </ul>
               <button onClick={onGetStarted}
-                className="w-full py-2.5 font-mono text-xs border transition-all"
+                className="w-full py-2.5 font-mono text-xs border transition-all hover:opacity-80"
                 style={{ borderColor: p.color, color: p.color }}>
-                {i === 0 ? "НАЧАТЬ" : "ВЫБРАТЬ"}
+                {i === 0 ? "НАЧАТЬ БЕСПЛАТНО" : "ВЫБРАТЬ ТАРИФ"}
               </button>
             </div>
           ))}
@@ -4386,11 +4459,142 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
   );
 }
 
+/* ===== ONBOARDING PAGE ===== */
+function OnboardingPage({ user, onDone }: { user: { username: string; role: string }; onDone: () => void }) {
+  const [selected, setSelected] = useState<PlanKey>("pro");
+  const [loading, setLoading]   = useState(false);
+  const [payStatus, setPayStatus] = useState<{ robokassa: boolean; yookassa: boolean }>({ robokassa: false, yookassa: false });
+  const [provider, setProvider] = useState<"robokassa" | "yookassa">("robokassa");
+  const [msg, setMsg]           = useState("");
+
+  useEffect(() => {
+    authFetch(`${PAYMENT_URL}?action=status`).then(r => r.json()).then(d => {
+      if (d.robokassa) setPayStatus({ robokassa: d.robokassa.connected, yookassa: d.yookassa.connected });
+    });
+  }, []);
+
+  const pay = async () => {
+    setLoading(true);
+    const r = await authFetch(PAYMENT_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "create_payment", plan: selected, provider, return_url: window.location.href }),
+    });
+    const d = await r.json();
+    setLoading(false);
+    if (d.ok && d.payment_url) { window.location.href = d.payment_url; }
+    else setMsg(d.error || "Ошибка. Попробуй позже.");
+  };
+
+  const hasPay = payStatus.robokassa || payStatus.yookassa;
+
+  return (
+    <div className="cyber-bg min-h-screen flex items-center justify-center p-4" style={{ fontFamily: "'IBM Plex Sans', sans-serif" }}>
+      <div className="w-full max-w-2xl animate-fade-in-up">
+
+        {/* Шапка */}
+        <div className="text-center mb-8">
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)] mb-1 tracking-widest">ДОБРО ПОЖАЛОВАТЬ</div>
+          <div className="font-orbitron text-2xl font-black neon-text mb-1">{user.username.toUpperCase()}</div>
+          <div className="font-mono text-sm text-[var(--cyber-text-dim)]">Аккаунт создан. Выбери тариф — или начни бесплатно.</div>
+        </div>
+
+        {/* Тарифы */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+          {(["free", "basic", "pro"] as PlanKey[]).map(key => {
+            const p = PLAN_INFO[key];
+            const isSelected = selected === key;
+            return (
+              <button key={key} onClick={() => setSelected(key)}
+                className="rounded-none p-4 text-left transition-all border-2 flex flex-col"
+                style={{ borderColor: isSelected ? p.color : "var(--cyber-border)", background: isSelected ? `${p.color}11` : "var(--cyber-surface)" }}>
+                {p.badge && <div className="font-mono text-[9px] mb-1.5" style={{ color: p.color }}>{p.badge}</div>}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-orbitron text-sm font-black" style={{ color: p.color }}>{p.name}</div>
+                  <div className="font-orbitron text-base font-black text-[var(--cyber-text)]">
+                    {p.price === 0 ? "Бесплатно" : `${p.price} ₽`}
+                    {p.price > 0 && <span className="font-mono text-[9px] text-[var(--cyber-text-dim)]">/мес</span>}
+                  </div>
+                </div>
+                <ul className="space-y-1 flex-1">
+                  {p.features.map(f => (
+                    <li key={f.text} className={`font-mono text-[10px] flex items-start gap-1.5 ${f.ok ? "text-[var(--cyber-text-dim)]" : "opacity-25"}`}>
+                      <span className="flex-shrink-0 mt-0.5" style={{ color: f.ok ? p.color : "transparent" }}>✓</span>
+                      {f.text}
+                    </li>
+                  ))}
+                </ul>
+                {isSelected && (
+                  <div className="mt-3 font-mono text-[10px] text-center py-1 rounded-none" style={{ background: `${p.color}22`, color: p.color }}>
+                    ● ВЫБРАН
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {msg && <div className="font-mono text-xs text-[var(--cyber-red)] text-center mb-3 p-2 border border-[var(--cyber-red)]">{msg}</div>}
+
+        {/* Выбор провайдера если нужна оплата */}
+        {selected !== "free" && hasPay && (
+          <div className="flex gap-2 mb-3">
+            {payStatus.robokassa && (
+              <button onClick={() => setProvider("robokassa")}
+                className={`flex-1 py-2 font-mono text-xs border rounded-none transition-all ${provider === "robokassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                Robokassa (карта, СБП)
+              </button>
+            )}
+            {payStatus.yookassa && (
+              <button onClick={() => setProvider("yookassa")}
+                className={`flex-1 py-2 font-mono text-xs border rounded-none transition-all ${provider === "yookassa" ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                ЮKassa
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* CTA */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {selected === "free" ? (
+            <button onClick={onDone}
+              className="flex-1 py-3 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all flex items-center justify-center gap-2">
+              <Icon name="Zap" size={15} /> НАЧАТЬ БЕСПЛАТНО →
+            </button>
+          ) : hasPay ? (
+            <button onClick={pay} disabled={loading}
+              className="flex-1 py-3 font-orbitron text-sm font-bold rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              style={{ border: `2px solid ${PLAN_INFO[selected].color}`, color: PLAN_INFO[selected].color, background: `${PLAN_INFO[selected].color}11` }}>
+              {loading
+                ? <><div className="w-4 h-4 border border-current border-t-transparent rounded-full animate-spin" /><span>...</span></>
+                : <><Icon name="CreditCard" size={15} /> ОПЛАТИТЬ {PLAN_INFO[selected].price} ₽ / МЕС →</>}
+            </button>
+          ) : (
+            <button onClick={onDone}
+              className="flex-1 py-3 font-orbitron text-sm font-bold border-2 border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all flex items-center justify-center gap-2">
+              <Icon name="Zap" size={15} /> ВОЙТИ В КИБЕРБОТ →
+            </button>
+          )}
+          {selected !== "free" && (
+            <button onClick={onDone} className="sm:w-auto px-5 py-3 font-mono text-xs border border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)] rounded-none transition-all">
+              Пропустить
+            </button>
+          )}
+        </div>
+
+        <div className="text-center mt-4 font-mono text-[9px] text-[var(--cyber-text-dim)]">
+          🔒 Подписку можно оформить позже в разделе «Профиль»
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ===== ROOT WRAPPER — проверка авторизации ===== */
 export default function Index() {
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<{ username: string; role: string } | null>(null);
   const [showAuth, setShowAuth] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     const sid = getSession();
@@ -4402,8 +4606,10 @@ export default function Index() {
       .finally(() => setAuthChecked(true));
   }, []);
 
-  const handleLogin = (sid: string, u: { username: string; role: string }) => {
-    setSession(sid); setUser(u);
+  const handleLogin = (sid: string, u: { username: string; role: string }, isNew?: boolean) => {
+    setSession(sid);
+    setUser(u);
+    if (isNew) setShowOnboarding(true);
   };
 
   if (!authChecked) return (
@@ -4417,6 +4623,7 @@ export default function Index() {
 
   if (!user && !showAuth) return <LandingPage onGetStarted={() => setShowAuth(true)} />;
   if (!user) return <LoginPage onLogin={handleLogin} />;
+  if (showOnboarding) return <OnboardingPage user={user} onDone={() => setShowOnboarding(false)} />;
   return <AppShell user={user} onLogout={() => { clearSession(); setUser(null); }} />;
 }
 
