@@ -419,8 +419,8 @@
 
 @keyframes fade-in-up {
   from {
-    opacity: 0;
-    transform: translateY(12px);
+    opacity: 0.2;
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -429,28 +429,23 @@
 }
 
 .animate-fade-in-up {
-  animation: fade-in-up 0.4s ease forwards;
+  animation: fade-in-up 0.3s ease forwards;
 }
 
 .delay-100 {
   animation-delay: 0.1s;
-  opacity: 0;
 }
 .delay-200 {
   animation-delay: 0.2s;
-  opacity: 0;
 }
 .delay-300 {
   animation-delay: 0.3s;
-  opacity: 0;
 }
 .delay-400 {
   animation-delay: 0.4s;
-  opacity: 0;
 }
 .delay-500 {
   animation-delay: 0.5s;
-  opacity: 0;
 }
 
 /* Scrollbar */
