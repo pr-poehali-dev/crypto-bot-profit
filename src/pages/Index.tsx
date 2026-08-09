@@ -278,6 +278,71 @@ function Spinner() {
 }
 
 /* ===== DASHBOARD ===== */
+/* ===== Виджет обновления токена Т-Банк (на главной, не зависит от вкладки Т-Банк) ===== */
+function TBankTokenWidget() {
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const [open, setOpen] = useState(false);
+  const [token, setToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const loadProfile = useCallback(() => {
+    authFetch(`${AUTH_URL}?action=profile`)
+      .then(r => r.json())
+      .then(d => { if (d.ok) setHasToken(!!d.user?.has_tbank_token); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadProfile(); }, [loadProfile]);
+
+  const save = async () => {
+    if (!token.trim()) return;
+    setSaving(true);
+    try {
+      const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "save_tokens", tbank_token: token }) });
+      const d = await r.json();
+      setMsg({ text: d.ok ? "✓ Токен обновлён" : d.error || "Ошибка", ok: !!d.ok });
+      if (d.ok) { setToken(""); setOpen(false); loadProfile(); }
+    } catch { setMsg({ text: "Ошибка соединения", ok: false }); }
+    setSaving(false);
+    setTimeout(() => setMsg(null), 3000);
+  };
+
+  return (
+    <div className="cyber-card rounded-none p-4 animate-fade-in-up">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <Icon name="Building2" size={16} className="neon-text-cyan" />
+          <div>
+            <div className="font-mono text-xs font-semibold text-[var(--cyber-text)]">Токен Т-Банк Invest</div>
+            <div className={`font-mono text-[10px] mt-0.5 ${hasToken ? "neon-text" : "text-[var(--cyber-yellow)]"}`}>
+              {hasToken === null ? "проверка..." : hasToken ? "✓ подключён" : "✗ не добавлен"}
+            </div>
+          </div>
+        </div>
+        <button onClick={() => setOpen(v => !v)}
+          className="px-3 py-1.5 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all">
+          {open ? "СВЕРНУТЬ" : hasToken ? "ОБНОВИТЬ ТОКЕН" : "ДОБАВИТЬ ТОКЕН"}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-3 pt-3 border-t border-[var(--cyber-border)] space-y-2">
+          <div className="flex gap-2 flex-wrap">
+            <input value={token} onChange={e => setToken(e.target.value)} type="password" placeholder="t.xxxxxxxxxxxxxxxx"
+              className="flex-1 min-w-[200px] bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-cyan)]" />
+            <button onClick={save} disabled={saving || !token.trim()}
+              className="px-4 py-2 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40">
+              {saving ? "..." : "СОХРАНИТЬ"}
+            </button>
+          </div>
+          <div className="font-mono text-[10px] text-[var(--cyber-text-dim)]">invest.tbank.ru → Настройки → Токен для Open API</div>
+          {msg && <div className={`font-mono text-[10px] ${msg.ok ? "profit" : "loss"}`}>{msg.text}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardPage({ botRunning, setBotRunning }: { botRunning: boolean; setBotRunning: (v: boolean) => void }) {
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -324,6 +389,9 @@ function DashboardPage({ botRunning, setBotRunning }: { botRunning: boolean; set
           <button className="cyber-btn-danger rounded-none" onClick={() => setBotRunning(false)} disabled={!botRunning}>СТОП</button>
         </div>
       </div>
+
+      {/* Токен Т-Банк — быстрый доступ с главной */}
+      <TBankTokenWidget />
 
       {/* BTC hero */}
       {btc && (
