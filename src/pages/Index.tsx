@@ -1554,6 +1554,7 @@ function TBankPage({ refreshKey = 0, scalpEnabled, setScalpEnabled, scalpInterva
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<"share" | "etf" | "futures">("share");
   const [hasToken, setHasToken] = useState<boolean | null>(null);
+  const [connError, setConnError] = useState(false);
   const [balance, setBalance] = useState<TBankBalance | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
@@ -1564,8 +1565,15 @@ function TBankPage({ refreshKey = 0, scalpEnabled, setScalpEnabled, scalpInterva
   useEffect(() => {
     authFetch(`${TBANK_URL}?action=accounts`)
       .then(r => r.json())
-      .then(d => { setHasToken(Array.isArray(d) && d.length > 0); })
-      .catch(() => setHasToken(false));
+      .then(d => {
+        if (Array.isArray(d)) { setHasToken(d.length > 0); setConnError(false); }
+        else if (typeof d?.error === "string" && d.error.includes("TBANK_INVEST_TOKEN")) {
+          setHasToken(false); setConnError(false); // токен реально не задан
+        } else {
+          setHasToken(true); setConnError(true); // токен есть, но временно нет связи с Т-Банком
+        }
+      })
+      .catch(() => { setHasToken(true); setConnError(true); });
   }, []);
 
   const fetchBalance = useCallback(() => {
@@ -1652,14 +1660,28 @@ function TBankPage({ refreshKey = 0, scalpEnabled, setScalpEnabled, scalpInterva
               Обновить
             </button>
           )}
-          <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${hasToken === true ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : hasToken === false ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${hasToken === true ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-red)]"}`} />
-            {hasToken === true ? "ПОДКЛЮЧЁН" : hasToken === false ? "НЕТ ТОКЕНА" : "ПРОВЕРКА..."}
+          <div className={`flex items-center gap-2 px-3 py-1.5 border rounded-none font-mono text-xs ${connError ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)]" : hasToken === true ? "border-[var(--cyber-green)] text-[var(--cyber-green)]" : hasToken === false ? "border-[var(--cyber-red)] text-[var(--cyber-red)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${connError ? "bg-[var(--cyber-yellow)]" : hasToken === true ? "bg-[var(--cyber-green)]" : "bg-[var(--cyber-red)]"}`} />
+            {connError ? "НЕТ СВЯЗИ" : hasToken === true ? "ПОДКЛЮЧЁН" : hasToken === false ? "НЕТ ТОКЕНА" : "ПРОВЕРКА..."}
           </div>
         </div>
       </div>
 
-      {hasToken === false && (
+      {connError && (
+        <div className="cyber-card rounded-none p-4 border border-[var(--cyber-yellow)] animate-fade-in-up">
+          <div className="flex items-start gap-3">
+            <Icon name="AlertTriangle" size={16} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
+            <div>
+              <div className="font-mono text-xs text-[var(--cyber-yellow)] font-semibold mb-1">ВРЕМЕННО НЕТ СВЯЗИ С Т-БАНКОМ</div>
+              <div className="text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+                Токен подключён, но сервер Т-Банка сейчас недоступен. Попробуйте обновить через минуту.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hasToken === false && !connError && (
         <div className="cyber-card rounded-none p-4 border border-[var(--cyber-yellow)] animate-fade-in-up">
           <div className="flex items-start gap-3">
             <Icon name="AlertTriangle" size={16} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
