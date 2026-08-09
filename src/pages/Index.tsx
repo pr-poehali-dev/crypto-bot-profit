@@ -1567,10 +1567,12 @@ function TBankPage({ refreshKey = 0, scalpEnabled, setScalpEnabled, scalpInterva
       .then(r => r.json())
       .then(d => {
         if (Array.isArray(d)) { setHasToken(d.length > 0); setConnError(false); }
-        else if (typeof d?.error === "string" && d.error.includes("TBANK_INVEST_TOKEN")) {
+        else if (d?.tbank_unavailable) {
+          setHasToken(true); setConnError(true); // токен есть, но временно нет связи с Т-Банком
+        } else if (typeof d?.error === "string" && d.error.includes("TBANK_INVEST_TOKEN")) {
           setHasToken(false); setConnError(false); // токен реально не задан
         } else {
-          setHasToken(true); setConnError(true); // токен есть, но временно нет связи с Т-Банком
+          setHasToken(true); setConnError(true); // непредвиденная ошибка — не закрываем вкладку
         }
       })
       .catch(() => { setHasToken(true); setConnError(true); });

@@ -201,9 +201,19 @@ def get_portfolio_positions(account_id):
     return positions, data
 
 def handler(event: dict, context) -> dict:
+    """Обёртка — гарантирует JSON+CORS ответ даже если Т-Банк API временно недоступен (SSL/сеть)."""
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
+    try:
+        return _handler_impl(event, context)
+    except requests.exceptions.RequestException as e:
+        print(f"[autotrader] connection error: {e}")
+        return resp({"error": "Т-Банк временно недоступен, попробуйте позже", "tbank_unavailable": True}, 503)
+    except Exception as e:
+        print(f"[autotrader] unexpected error: {e}")
+        return resp({"error": "Внутренняя ошибка сервера"}, 500)
 
+def _handler_impl(event: dict, context) -> dict:
     method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}
     headers = event.get("headers") or {}

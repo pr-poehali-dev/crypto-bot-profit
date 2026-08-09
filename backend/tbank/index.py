@@ -75,9 +75,19 @@ def resolve_figi(figi: str) -> dict:
     return result
 
 def handler(event: dict, context) -> dict:
+    """Обёртка — гарантирует JSON+CORS ответ даже если Т-Банк API временно недоступен (SSL/сеть)."""
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
+    try:
+        return _handler_impl(event, context)
+    except requests.exceptions.RequestException as e:
+        print(f"[tbank] connection error: {e}")
+        return resp({"error": "Т-Банк временно недоступен, попробуйте позже", "tbank_unavailable": True}, 503)
+    except Exception as e:
+        print(f"[tbank] unexpected error: {e}")
+        return resp({"error": "Внутренняя ошибка сервера"}, 500)
 
+def _handler_impl(event: dict, context) -> dict:
     headers_in = event.get("headers") or {}
     session_id = headers_in.get("x-session-id") or headers_in.get("X-Session-Id") or ""
     if not check_session(session_id):
