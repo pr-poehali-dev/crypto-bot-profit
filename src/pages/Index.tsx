@@ -2420,7 +2420,7 @@ function AutoBotPage({
         <div className="flex items-center gap-2 flex-wrap">
           <span className="section-label shrink-0">Интервал запуска:</span>
           {INTERVALS.map(iv => (
-            <button key={iv.val} onClick={() => { setIntervalMin(iv.val); if (enabled) setCountdown(iv.val * 60); }}
+            <button key={iv.val} onClick={() => { setIntervalMin(iv.val); if (enabled) setBotCountdown(iv.val * 60); }}
               disabled={enabled}
               className={`px-3 py-1 font-mono text-xs rounded-none border transition-all disabled:opacity-50 ${intervalMin === iv.val ? "border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.08)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)] hover:border-[var(--cyber-cyan)]"}`}>
               {iv.label}
