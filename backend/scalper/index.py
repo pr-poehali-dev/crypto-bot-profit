@@ -155,14 +155,14 @@ def add_referral_earning(user_id, trade_amount, token):
     db(f"INSERT INTO {SCHEMA}.referral_earnings (owner_id, from_user_id, trade_amount, earn_pct, earned) VALUES (%s, %s, %s, %s, %s)",
        (owner_id, user_id, trade_amount, pct, earned))
 
-def add_platform_revenue(user_id, trade_amount):
+def add_platform_revenue(user_id, trade_amount, source="tbank_scalp_fee"):
     if user_id == 1: return
     pct_rows = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE key = 'platform_fee_pct' AND user_id = 1")
     pct = float(pct_rows[0]["value"]) if pct_rows else 0.3
     revenue = round(trade_amount * pct / 100, 2)
     if revenue <= 0: return
-    db(f"INSERT INTO {SCHEMA}.platform_revenue (user_id, source, trade_amount, fee_pct, revenue, description) VALUES (%s, 'trade_fee', %s, %s, %s, %s)",
-       (user_id, trade_amount, pct, revenue, f"Комиссия {pct}% со сделки пользователя {user_id}"))
+    db(f"INSERT INTO {SCHEMA}.platform_revenue (user_id, source, trade_amount, fee_pct, revenue, description) VALUES (%s, %s, %s, %s, %s, %s)",
+       (user_id, source, trade_amount, pct, revenue, f"Комиссия {pct}% со сделки пользователя {user_id}"))
 
 def get_account_id(token, saved_acct):
     """Выбирает счёт по saved_acct или возвращает первый доступный."""
@@ -256,7 +256,7 @@ def run_scalp_for_account(uid, token, acct_id, target_pct, stop_pct, amount, lab
         db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, lot_size, buy_price, amount, target_pct, stop_pct, order_buy_id, account_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
            (uid, inst["figi"], inst["ticker"], lots, lot, buy_price_adj, cost_adj, target_pct, stop_pct, order.get("orderId",""), acct_id))
         add_referral_earning(uid, cost_adj, token)
-        add_platform_revenue(uid, cost_adj)
+        add_platform_revenue(uid, cost_adj, source="tbank_scalp_fee")
         free_cash  -= cost
         open_count += 1
         bought.append({"ticker": inst["ticker"], "score": score, "rsi": rsi_val, "price": price, "lots": lots, "cost": round(cost,2), "account": label})
@@ -419,7 +419,7 @@ def _handler_impl(event: dict, context) -> dict:
             trade = db(f"INSERT INTO {SCHEMA}.scalp_trades (user_id, figi, ticker, lots, lot_size, buy_price, amount, target_pct, stop_pct, order_buy_id, account_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
                 (uid, figi, ticker, lots, lot_size, buy_price_adj, round(amount, 2), target_pct, stop_pct, order_id, acct_id))
             add_referral_earning(uid, amount, token)
-            add_platform_revenue(uid, amount)
+            add_platform_revenue(uid, amount, source="tbank_scalp_manual_fee")
             return resp({"ok": True, "trade_id": trade[0]["id"] if trade else None, "price": buy_price_adj, "amount": round(amount, 2), "order_id": order_id})
 
         if action == "check_positions":

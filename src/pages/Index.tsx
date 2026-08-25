@@ -4132,15 +4132,76 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
               </div>
             ))}
           </div>
-          {/* По источникам */}
+
+          {/* По площадкам: Т-Банк vs BingX */}
+          {revenue.by_source.length > 0 && (() => {
+            const SOURCE_META: Record<string, { label: string; platform: "tbank" | "bingx" | "other" }> = {
+              tbank_manual_fee:          { label: "Ручная торговля",        platform: "tbank" },
+              autotrader_buy_fee:        { label: "Автотрейдинг",           platform: "tbank" },
+              tbank_portfolio_scalp_fee: { label: "Авто-продажа портфеля",  platform: "tbank" },
+              tbank_scalp_fee:           { label: "Скальпинг (авто)",       platform: "tbank" },
+              tbank_scalp_manual_fee:    { label: "Скальпинг (ручной)",     platform: "tbank" },
+              trade_fee:                 { label: "Скальпинг Т-Банк",       platform: "tbank" },
+              bingx_futures_fee:         { label: "Фьючерсы",               platform: "bingx" },
+              bingx_spot_fee:            { label: "Спот-торговля",          platform: "bingx" },
+              bingx_scalp_fee:           { label: "Скальпинг",              platform: "bingx" },
+              bingx_trade_fee:           { label: "Торговля",               platform: "bingx" },
+              subscription:              { label: "Подписки",               platform: "other" },
+            };
+            const platforms = { tbank: 0, bingx: 0, other: 0 };
+            revenue.by_source.forEach(s => {
+              const p = SOURCE_META[s.source]?.platform || "other";
+              platforms[p] += s.total;
+            });
+            const maxPlatform = Math.max(platforms.tbank, platforms.bingx, platforms.other, 1);
+            const PLATFORM_META = {
+              tbank: { label: "Т-БАНК", icon: "Building2", color: "var(--cyber-cyan)" },
+              bingx: { label: "BINGX",  icon: "BarChart2",  color: "var(--cyber-green)" },
+              other: { label: "ПРОЧЕЕ", icon: "MoreHorizontal", color: "var(--cyber-yellow)" },
+            } as const;
+            return (
+              <div className="mb-4 space-y-2">
+                {(["tbank", "bingx", "other"] as const).filter(p => platforms[p] > 0).map(p => (
+                  <div key={p}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-mono text-xs flex items-center gap-1.5" style={{ color: PLATFORM_META[p].color }}>
+                        <Icon name={PLATFORM_META[p].icon} size={12} /> {PLATFORM_META[p].label}
+                      </span>
+                      <span className="font-orbitron text-xs font-bold" style={{ color: PLATFORM_META[p].color }}>{platforms[p].toFixed(2)} ₽</span>
+                    </div>
+                    <div className="h-1.5 bg-[var(--cyber-bg-3)] rounded-none overflow-hidden">
+                      <div className="h-full transition-all" style={{ width: `${(platforms[p] / maxPlatform) * 100}%`, background: PLATFORM_META[p].color }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Детально по источникам */}
           {revenue.by_source.length > 0 && (
             <div className="space-y-1.5 mb-3">
-              {revenue.by_source.map(s => (
-                <div key={s.source} className="flex items-center justify-between font-mono text-xs">
-                  <span className="text-[var(--cyber-text-dim)]">{s.source === "trade_fee" ? "Комиссия со сделок" : s.source === "subscription" ? "Подписки" : s.source} ({s.cnt} шт)</span>
-                  <span className="neon-text font-bold">+{s.total.toFixed(2)} ₽</span>
-                </div>
-              ))}
+              {revenue.by_source.map(s => {
+                const SOURCE_LABELS: Record<string, string> = {
+                  tbank_manual_fee: "Т-Банк · ручная торговля",
+                  autotrader_buy_fee: "Т-Банк · автотрейдинг",
+                  tbank_portfolio_scalp_fee: "Т-Банк · авто-продажа портфеля",
+                  tbank_scalp_fee: "Т-Банк · скальпинг (авто)",
+                  tbank_scalp_manual_fee: "Т-Банк · скальпинг (ручной)",
+                  trade_fee: "Т-Банк · скальпинг",
+                  bingx_futures_fee: "BingX · фьючерсы",
+                  bingx_spot_fee: "BingX · спот",
+                  bingx_scalp_fee: "BingX · скальпинг",
+                  bingx_trade_fee: "BingX · торговля",
+                  subscription: "Подписки",
+                };
+                return (
+                  <div key={s.source} className="flex items-center justify-between font-mono text-xs">
+                    <span className="text-[var(--cyber-text-dim)]">{SOURCE_LABELS[s.source] || s.source} ({s.cnt} шт)</span>
+                    <span className="neon-text font-bold">+{s.total.toFixed(2)} ₽</span>
+                  </div>
+                );
+              })}
             </div>
           )}
           {/* Подписки */}
