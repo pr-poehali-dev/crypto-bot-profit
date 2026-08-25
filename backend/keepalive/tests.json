@@ -11,7 +11,7 @@
       "method": "GET",
       "path": "/?action=status",
       "expectedStatus": 200,
-      "expectedBody": {"cycle_count": 1},
+      "expectedBody": {"status": "stopped"},
       "bodyMatcher": "partial"
     },
     {

@@ -90,16 +90,32 @@ def schedule_next(delay_sec: int, self_url: str):
     t = threading.Thread(target=_call, daemon=True)
     t.start()
 
-# ── Запуск торгового цикла ────────────────────────────────────────────────────
-def run_trade_cycle(admin_id: int) -> dict:
-    session = make_session(admin_id)
+def get_users_with_tbank_token() -> list:
+    """Все пользователи с подключённым личным токеном Т-Банк."""
+    conn = psycopg2.connect(DB_URL)
+    cur  = conn.cursor()
+    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE tbank_token IS NOT NULL AND tbank_token != ''")
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [r[0] for r in rows]
+
+def get_users_with_bingx_keys() -> list:
+    """Все пользователи с подключёнными личными ключами BingX."""
+    conn = psycopg2.connect(DB_URL)
+    cur  = conn.cursor()
+    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE bingx_api_key IS NOT NULL AND bingx_api_key != ''")
+    rows = cur.fetchall(); cur.close(); conn.close()
+    return [r[0] for r in rows]
+
+# ── Запуск торгового цикла для ОДНОГО пользователя ────────────────────────────
+def run_trade_cycle_for_user(uid: int) -> dict:
+    session = make_session(uid)
     auth    = {"Content-Type": "application/json", "X-Session-Id": session}
     now     = datetime.now(timezone.utc)
     msk_h   = (now.hour + 3) % 24
-    result  = {"autobot": None, "scalper": None, "skipped": []}
+    result  = {"skipped": []}
 
-    # Автобот (только в рабочие часы 7:00–23:00 МСК)
-    bot_on = db_get_setting("auto_bot_enabled") == "true"
+    # Автобот (персональные настройки, только в рабочие часы 7:00–23:00 МСК)
+    bot_on = db_get_setting("auto_bot_enabled", uid) == "true"
     if bot_on:
         if 7 <= msk_h < 23:
             try:
@@ -107,7 +123,7 @@ def run_trade_cycle(admin_id: int) -> dict:
                                   headers=auth, timeout=28)
                 d = r.json()
                 if d.get("stopped"):
-                    db_set_setting("auto_bot_enabled", "false")
+                    db_set_setting("auto_bot_enabled", "false", uid)
                 trades = [t for t in d.get("results", []) if t.get("order_id")]
                 result["autobot"] = {
                     "ok": d.get("success", False),
@@ -125,12 +141,12 @@ def run_trade_cycle(admin_id: int) -> dict:
     def us_get(key: str) -> str:
         conn = psycopg2.connect(DB_URL)
         cur  = conn.cursor()
-        cur.execute(f"SELECT value FROM {SCHEMA}.user_settings WHERE key=%s AND user_id=%s", (key, admin_id))
+        cur.execute(f"SELECT value FROM {SCHEMA}.user_settings WHERE key=%s AND user_id=%s", (key, uid))
         row  = cur.fetchone(); cur.close(); conn.close()
         return row[0] if row else ""
 
     # ── Скальпер Т-Банк ───────────────────────────────────────────────────────
-    tbank_scalp_on = us_get("scalp_enabled") == "true"
+    tbank_scalp_on = us_get("scalp_enabled") == "true" or us_get("scalp_enabled_2") == "true"
     if tbank_scalp_on:
         if 7 <= msk_h < 23:
             try:
@@ -150,29 +166,11 @@ def run_trade_cycle(admin_id: int) -> dict:
     else:
         result["skipped"].append("scalper_tbank: выключен")
 
-    # ── Скальпер BingX ────────────────────────────────────────────────────────
-    bingx_scalp_on = us_get("bingx_scalp_enabled") == "true"
-    if bingx_scalp_on:
-        try:
-            r = requests.post(BINGX_URL, json={"action": "scalp_cycle"},
-                              headers=auth, timeout=28)
-            d = r.json()
-            result["scalper_bingx"] = {
-                "ok":        d.get("ok", False),
-                "bought":    len(d.get("bought", [])),
-                "sold":      len(d.get("sold", [])),
-                "open_count": d.get("open_count", 0),
-            }
-        except Exception as e:
-            result["scalper_bingx"] = {"error": str(e)}
-    else:
-        result["skipped"].append("scalper_bingx: выключен")
-
     # ── Портфельный скальпер Т-Банк (авто-продажа по %) ──────────────────────
     try:
         conn = psycopg2.connect(DB_URL)
         cur  = conn.cursor()
-        cur.execute(f"SELECT enabled FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (admin_id,))
+        cur.execute(f"SELECT enabled FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
         ps_row = cur.fetchone(); cur.close(); conn.close()
         ps_on = bool(ps_row and ps_row[0])
     except Exception:
@@ -195,6 +193,43 @@ def run_trade_cycle(admin_id: int) -> dict:
             result["portfolio_scalp"] = {"error": str(e)}
     else:
         result["skipped"].append("portfolio_scalp: " + ("выключен" if not ps_on else "нерабочее время"))
+
+    return result
+
+# ── Запуск торгового цикла для ВСЕХ пользователей + BingX скальпер админа ─────
+def run_trade_cycle(admin_id: int) -> dict:
+    result = {"users": {}, "skipped": []}
+
+    # Т-Банк: обходим всех пользователей с личным токеном
+    for uid in get_users_with_tbank_token():
+        try:
+            result["users"][str(uid)] = run_trade_cycle_for_user(uid)
+        except Exception as e:
+            result["users"][str(uid)] = {"error": str(e)}
+
+    # BingX скальпер: обходим всех пользователей с личными ключами
+    bingx_results = {}
+    for uid in get_users_with_bingx_keys():
+        session = make_session(uid)
+        auth    = {"Content-Type": "application/json", "X-Session-Id": session}
+        conn = psycopg2.connect(DB_URL)
+        cur  = conn.cursor()
+        cur.execute(f"SELECT value FROM {SCHEMA}.user_settings WHERE key='bingx_scalp_enabled' AND user_id=%s", (uid,))
+        row  = cur.fetchone(); cur.close(); conn.close()
+        if not (row and row[0] == "true"):
+            continue
+        try:
+            r = requests.post(BINGX_URL, json={"action": "scalp_cycle"}, headers=auth, timeout=28)
+            d = r.json()
+            bingx_results[str(uid)] = {
+                "ok":        d.get("ok", False),
+                "bought":    len(d.get("bought", [])),
+                "sold":      len(d.get("sold", [])),
+                "open_count": d.get("open_count", 0),
+            }
+        except Exception as e:
+            bingx_results[str(uid)] = {"error": str(e)}
+    result["scalper_bingx"] = bingx_results
 
     return result
 

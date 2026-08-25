@@ -1,14 +1,13 @@
 """
 Т-Банк Invest API — торговля акциями, фьючерсами и ETF.
 Поддерживает: баланс, портфель, операции, поиск инструментов, ордера.
+Каждый пользователь торгует через собственный токен Т-Банк (личный кабинет → настройки профиля).
 """
 import os, json, requests
 from datetime import datetime, timedelta, timezone
 import psycopg2
 
-TOKEN = os.environ.get("TBANK_INVEST_TOKEN", "")
 BASE = "https://invest-public-api.tinkoff.ru/rest"
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 DB_URL = os.environ.get("DATABASE_URL", "")
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "t_p28097026_crypto_bot_profit")
 
@@ -18,30 +17,41 @@ CORS = {
     "Access-Control-Allow-Headers": "Content-Type, X-Session-Id",
 }
 
-def check_session(session_id: str) -> bool:
-    if not session_id or len(session_id) < 32: return False
-    conn = psycopg2.connect(DB_URL)
-    cur = conn.cursor()
-    cur.execute(f"SELECT id FROM {SCHEMA}.sessions WHERE id = %s AND expires_at > NOW()", (session_id,))
-    ok = cur.fetchone() is not None
-    cur.close(); conn.close()
-    return ok
-
-def get_uid_from_session(session_id: str):
-    """Возвращает user_id из сессии или None."""
+def get_user_from_session(session_id: str):
+    """Возвращает {user_id, tbank_token, plan} из сессии или None."""
     if not session_id or len(session_id) < 32: return None
     conn = psycopg2.connect(DB_URL)
     cur  = conn.cursor()
-    cur.execute(f"SELECT user_id FROM {SCHEMA}.sessions WHERE id=%s AND expires_at>NOW()", (session_id,))
+    cur.execute(
+        f"SELECT u.id, u.tbank_token, u.plan FROM {SCHEMA}.sessions s "
+        f"JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id=%s AND s.expires_at>NOW()",
+        (session_id,))
     row = cur.fetchone(); cur.close(); conn.close()
-    return row[0] if row else None
+    if not row: return None
+    return {"user_id": row[0], "tbank_token": row[1] or "", "plan": row[2] or "free"}
+
+def get_uid_from_session(session_id: str):
+    """Возвращает user_id из сессии или None."""
+    u = get_user_from_session(session_id)
+    return u["user_id"] if u else None
 
 def resp(body, code=200):
     return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, default=str)}
 
-def tbank_post(path, payload):
-    r = requests.post(f"{BASE}/{path}", headers=HEADERS, json=payload, timeout=15)
-    return r.json()
+def add_platform_revenue(user_id, trade_amount, source="tbank_trade_fee"):
+    if user_id == 1: return
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    cur.execute(f"SELECT value FROM {SCHEMA}.bot_settings WHERE key='platform_fee_pct' AND user_id=1")
+    row = cur.fetchone()
+    pct = float(row[0]) if row else 0.3
+    revenue = round(trade_amount * pct / 100, 2)
+    if revenue > 0:
+        cur.execute(
+            f"INSERT INTO {SCHEMA}.platform_revenue (user_id, source, trade_amount, fee_pct, revenue, description) VALUES (%s,%s,%s,%s,%s,%s)",
+            (user_id, source, trade_amount, pct, revenue, f"Комиссия {pct}% со сделки Т-Банк пользователя {user_id}"))
+        conn.commit()
+    cur.close(); conn.close()
 
 def money(m):
     if not m:
@@ -50,10 +60,15 @@ def money(m):
     nano = float(m.get("nano", 0))
     return units + nano / 1_000_000_000
 
+def tbank_post(path, payload, token):
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    r = requests.post(f"{BASE}/{path}", headers=headers, json=payload, timeout=15)
+    return r.json()
+
 # Кэш тикеров FIGI→{ticker, name} на время жизни функции
 _figi_cache: dict = {}
 
-def resolve_figi(figi: str) -> dict:
+def resolve_figi(figi: str, token: str) -> dict:
     """Возвращает {'ticker': ..., 'name': ...} по FIGI через GetInstrumentBy."""
     if not figi:
         return {"ticker": "—", "name": "—"}
@@ -63,7 +78,7 @@ def resolve_figi(figi: str) -> dict:
         r = tbank_post("tinkoff.public.invest.api.contract.v1.InstrumentsService/GetInstrumentBy", {
             "idType": "INSTRUMENT_ID_TYPE_FIGI",
             "id": figi,
-        })
+        }, token)
         inst = r.get("instrument", {})
         result = {
             "ticker": inst.get("ticker") or figi[-6:],
@@ -90,22 +105,26 @@ def handler(event: dict, context) -> dict:
 def _handler_impl(event: dict, context) -> dict:
     headers_in = event.get("headers") or {}
     session_id = headers_in.get("x-session-id") or headers_in.get("X-Session-Id") or ""
-    if not check_session(session_id):
+    user = get_user_from_session(session_id)
+    if not user:
         return resp({"error": "Не авторизован"}, 401)
+
+    uid = user["user_id"]
+    TOKEN = user["tbank_token"]
 
     method = event.get("httpMethod", "GET")
     params = event.get("queryStringParameters") or {}
     action = params.get("action", "")
 
     if not TOKEN:
-        return resp({"error": "TBANK_INVEST_TOKEN не задан."}, 500)
+        return resp({"error": "Добавьте токен Т-Банк в настройках профиля"}, 400)
 
     # ─── GET ───────────────────────────────────────────────────────────────────
     if method == "GET":
 
         # Список счетов
         if action == "accounts":
-            data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, TOKEN)
             if "code" in data:
                 return resp({"error": data.get("message", "Ошибка API")}, 400)
             accounts = []
@@ -125,7 +144,7 @@ def _handler_impl(event: dict, context) -> dict:
 
             # Если account_id не передан — берём первый счёт
             if not account_id:
-                acc_data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+                acc_data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, TOKEN)
                 accounts = acc_data.get("accounts", [])
                 if not accounts:
                     return resp({"error": "Счета не найдены"}, 404)
@@ -134,7 +153,7 @@ def _handler_impl(event: dict, context) -> dict:
             # Портфель
             portfolio = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {
                 "accountId": account_id, "currency": "RUB"
-            })
+            }, TOKEN)
 
             total_shares = money(portfolio.get("totalAmountShares"))
             total_bonds = money(portfolio.get("totalAmountBonds"))
@@ -151,7 +170,7 @@ def _handler_impl(event: dict, context) -> dict:
             figi_list = [p.get("figi", "") for p in raw_positions if p.get("figi")]
             # Резолвим все FIGI за один проход (кэш ускоряет повторные вызовы)
             for figi in figi_list:
-                resolve_figi(figi)
+                resolve_figi(figi, TOKEN)
 
             positions = []
             for p in raw_positions:
@@ -160,7 +179,7 @@ def _handler_impl(event: dict, context) -> dict:
                 avg_price  = money(p.get("averagePositionPrice")) or money(p.get("averagePositionPricePt"))
                 pnl        = money(p.get("expectedYield"))
                 figi       = p.get("figi", "")
-                inst_info  = resolve_figi(figi)
+                inst_info  = resolve_figi(figi, TOKEN)
                 cost_basis = avg_price * qty
                 pnl_pct    = round(pnl / cost_basis * 100, 2) if cost_basis > 0 else 0
                 positions.append({
@@ -183,7 +202,7 @@ def _handler_impl(event: dict, context) -> dict:
                 "from": (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "state": "OPERATION_STATE_EXECUTED",
-            })
+            }, TOKEN)
 
             ops = ops_data.get("operations", [])
             trades_total = 0
@@ -259,7 +278,7 @@ def _handler_impl(event: dict, context) -> dict:
         # Портфель по счёту
         if action == "portfolio":
             account_id = params.get("account_id", "")
-            data = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {"accountId": account_id})
+            data = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {"accountId": account_id}, TOKEN)
             positions = []
             for p in data.get("positions", []):
                 positions.append({
@@ -284,7 +303,7 @@ def _handler_impl(event: dict, context) -> dict:
             kind = params.get("kind", "share")
             data = tbank_post("tinkoff.public.invest.api.contract.v1.InstrumentsService/FindInstrument", {
                 "query": query, "instrumentKind": kind.upper(), "apiTradeAvailableFlag": True
-            })
+            }, TOKEN)
             instruments = []
             for i in data.get("instruments", [])[:20]:
                 instruments.append({
@@ -307,11 +326,11 @@ def _handler_impl(event: dict, context) -> dict:
                 "from": (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "state": "OPERATION_STATE_EXECUTED",
-            })
+            }, TOKEN)
             ops = []
             for o in data.get("operations", [])[:50]:
                 figi      = o.get("figi") or ""
-                inst_info = resolve_figi(figi) if figi else {"ticker": "—", "name": "—"}
+                inst_info = resolve_figi(figi, TOKEN) if figi else {"ticker": "—", "name": "—"}
                 # Форматируем время: ISO → МСК читаемый вид
                 date_raw  = o.get("date", "")
                 date_msk  = "—"
@@ -341,7 +360,7 @@ def _handler_impl(event: dict, context) -> dict:
         # Открытые ордера
         if action == "orders":
             account_id = params.get("account_id", "")
-            data = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/GetOrders", {"accountId": account_id})
+            data = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/GetOrders", {"accountId": account_id}, TOKEN)
             orders = []
             for o in data.get("orders", []):
                 orders.append({
@@ -380,7 +399,12 @@ def _handler_impl(event: dict, context) -> dict:
             }
             if price and order_type == "ORDER_TYPE_LIMIT":
                 payload["price"] = {"units": str(int(price)), "nano": 0, "currency": "rub"}
-            data = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", payload)
+            data = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/PostOrder", payload, TOKEN)
+            # Комиссия платформы со сделки (по фактически исполненной сумме)
+            exec_amount = money(data.get("executedOrderPrice")) * (data.get("lotsExecuted") or 0)
+            if exec_amount <= 0:
+                exec_amount = money(data.get("initialOrderPrice")) * lots
+            add_platform_revenue(uid, exec_amount, source="tbank_manual_fee")
             return resp({
                 "order_id": data.get("orderId"),
                 "status": data.get("executionReportStatus"),
@@ -395,7 +419,7 @@ def _handler_impl(event: dict, context) -> dict:
             order_id = body.get("order_id", "")
             data = tbank_post("tinkoff.public.invest.api.contract.v1.OrdersService/CancelOrder", {
                 "accountId": account_id, "orderId": order_id
-            })
+            }, TOKEN)
             return resp({"success": True, "time": data.get("time")})
 
         # ── Сохранить настройки портфельного скальпера ────────────────────────
@@ -427,7 +451,7 @@ def _handler_impl(event: dict, context) -> dict:
             cur.execute(f"SELECT enabled, target_pct, stop_pct, account_id FROM {SCHEMA}.portfolio_scalp_settings WHERE user_id=%s", (uid,))
             s = cur.fetchone(); cur.close(); conn.close()
             # Список счетов для выбора
-            acc_data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            acc_data = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, TOKEN)
             accounts = [{"id": a.get("id"), "name": a.get("name", a.get("id"))} for a in acc_data.get("accounts", []) if a.get("id")]
             if not s:
                 return resp({"enabled": False, "target_pct": 2.0, "stop_pct": 3.0, "account_id": accounts[0]["id"] if accounts else "", "accounts": accounts})
@@ -463,7 +487,7 @@ def _handler_impl(event: dict, context) -> dict:
             if not market_open:
                 return resp({"ok": True, "skipped": f"Биржа закрыта (МСК {msk_h:02d}:{msk_min:02d}, торги 10:00–18:50 пн-пт)", "sold": []})
 
-            acc_data  = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
+            acc_data  = tbank_post("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, TOKEN)
             accounts  = acc_data.get("accounts", [])
             if not accounts:
                 return resp({"error": f"Счета не найдены: {acc_data}"}, 404)
@@ -476,7 +500,7 @@ def _handler_impl(event: dict, context) -> dict:
             # Портфель
             portfolio = tbank_post("tinkoff.public.invest.api.contract.v1.OperationsService/GetPortfolio", {
                 "accountId": account_id, "currency": "RUB"
-            })
+            }, TOKEN)
             positions = portfolio.get("positions", [])
             print(f"[portfolio_scalp_cycle] account={account_id} positions={len(positions)}")
 
@@ -493,7 +517,7 @@ def _handler_impl(event: dict, context) -> dict:
                 figi      = p.get("figi", "")
                 cost      = avg_price * qty
                 pnl_pct   = round(pnl / cost * 100, 2) if cost > 0 else 0
-                inst_info = resolve_figi(figi)
+                inst_info = resolve_figi(figi, TOKEN)
                 ticker    = inst_info["ticker"]
 
                 print(f"[portfolio_scalp_cycle] {ticker} pnl_pct={pnl_pct}% target={target_pct}% stop={stop_pct}% qty={qty} avg={avg_price} cur={cur_price}")
@@ -514,8 +538,9 @@ def _handler_impl(event: dict, context) -> dict:
                         "direction": "ORDER_DIRECTION_SELL",
                         "quantity":  lots,
                         "orderType": "ORDER_TYPE_MARKET",
-                    })
+                    }, TOKEN)
                     print(f"[portfolio_scalp_cycle] SELL {ticker} lots={lots} reason={reason} order={order}")
+                    add_platform_revenue(uid, round(cur_price * qty, 2), source="tbank_portfolio_scalp_fee")
                     sold.append({
                         "figi":     figi,
                         "ticker":   ticker,
