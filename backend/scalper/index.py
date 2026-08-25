@@ -28,8 +28,10 @@ def db(sql, params=()):
 
 def check_session(sid):
     if not sid or len(sid) < 32: return None
-    rows = db(f"SELECT s.user_id, u.username, u.role, u.tbank_token FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()", (sid,))
+    rows = db(f"SELECT s.user_id, u.username, u.role, u.plan, u.tbank_token FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()", (sid,))
     return rows[0] if rows else None
+
+MAX_MULTIPLIER_BY_PLAN = {"free": 1, "basic": 1, "pro": 3}
 
 def money(m):
     if not m: return 0.0
@@ -297,10 +299,12 @@ def _handler_impl(event: dict, context) -> dict:
         user_settings = db(
             f"SELECT key, value FROM {SCHEMA}.user_settings WHERE user_id = %s AND key IN ("
             f"'scalp_target_pct','scalp_stop_pct','scalp_amount','scalp_enabled','scalp_account_id',"
-            f"'scalp_target_pct_2','scalp_stop_pct_2','scalp_amount_2','scalp_enabled_2','scalp_account_id_2')",
+            f"'scalp_target_pct_2','scalp_stop_pct_2','scalp_amount_2','scalp_enabled_2','scalp_account_id_2',"
+            f"'scalp_multiplier')",
             (uid,)
         )
         us = {r["key"]: r["value"] for r in user_settings}
+        max_mult = MAX_MULTIPLIER_BY_PLAN.get(user.get("plan") or "free", 1)
 
         acc_data = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {}, token)
         accounts = [{"id": a.get("id"), "name": a.get("name", a.get("id"))} for a in acc_data.get("accounts", []) if a.get("id")]
@@ -327,6 +331,8 @@ def _handler_impl(event: dict, context) -> dict:
                 "enabled": us.get("scalp_enabled_2", "false") == "true",
                 "account_id": us.get("scalp_account_id_2", second_acct),
             },
+            "multiplier": float(us.get("scalp_multiplier", 1)),
+            "max_multiplier": max_mult,
         })
 
     if method == "GET" and action == "history":
@@ -372,6 +378,15 @@ def _handler_impl(event: dict, context) -> dict:
                 pairs.append((f"scalp_account_id{sfx}", account))
             for k, v in pairs:
                 db(f"INSERT INTO {SCHEMA}.user_settings (user_id, key, value) VALUES (%s, %s, %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s, updated_at = NOW()", (uid, k, v, v))
+            return resp({"ok": True})
+
+        if action == "save_multiplier":
+            max_mult = MAX_MULTIPLIER_BY_PLAN.get(user.get("plan") or "free", 1)
+            mult = float(body.get("multiplier", 1))
+            if mult > max_mult:
+                return resp({"error": f"Множитель до x{max_mult} доступен на твоём тарифе. Оформи PRO для множителя до x{MAX_MULTIPLIER_BY_PLAN['pro']}"}, 403)
+            if mult < 1: mult = 1
+            db(f"INSERT INTO {SCHEMA}.user_settings (user_id, key, value) VALUES (%s, 'scalp_multiplier', %s) ON CONFLICT (user_id, key) DO UPDATE SET value = %s, updated_at = NOW()", (uid, str(mult), str(mult)))
             return resp({"ok": True})
 
         if action == "buy":
@@ -442,6 +457,11 @@ def _handler_impl(event: dict, context) -> dict:
             us_map = {r["key"]: r["value"] for r in us}
             force = body.get("force", False)
 
+            # Множитель объёма — ограничен тарифом
+            max_mult = MAX_MULTIPLIER_BY_PLAN.get(user.get("plan") or "free", 1)
+            multiplier = min(float(us_map.get("scalp_multiplier", 1)), max_mult)
+            if multiplier < 1: multiplier = 1
+
             # Счёт 1
             enabled1 = us_map.get("scalp_enabled", "false") == "true"
             # Счёт 2
@@ -450,13 +470,13 @@ def _handler_impl(event: dict, context) -> dict:
             if not enabled1 and not enabled2 and not force:
                 return resp({"ok": False, "reason": "Оба счёта скальпинга выключены."})
 
-            all_results = {"ok": True, "sold": [], "bought": [], "account1": {}, "account2": {}}
+            all_results = {"ok": True, "sold": [], "bought": [], "account1": {}, "account2": {}, "multiplier": multiplier}
 
             # ── Счёт 1: скальпинг (быстрый доход) ──────────────────────
             if enabled1 or force:
                 target1  = float(us_map.get("scalp_target_pct", 1.0))
                 stop1    = float(us_map.get("scalp_stop_pct", 2.0))
-                amount1  = float(us_map.get("scalp_amount", 1000))
+                amount1  = float(us_map.get("scalp_amount", 1000)) * multiplier
                 acct1_id = get_account_id(token, us_map.get("scalp_account_id", ""))
                 r1 = run_scalp_for_account(uid, token, acct1_id, target1, stop1, amount1, label=" [счёт1]")
                 all_results["account1"] = r1
@@ -467,7 +487,7 @@ def _handler_impl(event: dict, context) -> dict:
             if enabled2:
                 target2  = float(us_map.get("scalp_target_pct_2", 1.0))
                 stop2    = float(us_map.get("scalp_stop_pct_2", 2.0))
-                amount2  = float(us_map.get("scalp_amount_2", 5000))
+                amount2  = float(us_map.get("scalp_amount_2", 5000)) * multiplier
                 acct2_id = get_account_id(token, us_map.get("scalp_account_id_2", ""))
                 r2 = run_scalp_for_account(uid, token, acct2_id, target2, stop2, amount2, label=" [счёт2]")
                 all_results["account2"] = r2

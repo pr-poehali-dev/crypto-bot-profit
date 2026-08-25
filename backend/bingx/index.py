@@ -30,8 +30,10 @@ def db(sql, params=()):
 
 def check_session(sid):
     if not sid or len(sid) < 32: return None
-    rows = db(f"SELECT s.user_id, u.username, u.role, u.bingx_api_key, u.bingx_secret_key FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()", (sid,))
+    rows = db(f"SELECT s.user_id, u.username, u.role, u.plan, u.bingx_api_key, u.bingx_secret_key FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()", (sid,))
     return rows[0] if rows else None
+
+MAX_LEVERAGE_BY_PLAN = {"free": 5, "basic": 5, "pro": 20}
 
 # ── BingX подпись ─────────────────────────────────────────────────────────────
 def bx_sign(secret: str, params: dict) -> str:
@@ -156,7 +158,8 @@ def handler(event: dict, context) -> dict:
     # ── Проверить наличие ключей ─────────────────────────────────────────────
     has_keys = bool(api_key and secret)
     if action == "check_keys":
-        return resp({"has_keys": has_keys, "api_key_preview": api_key[:8] + "..." if api_key else ""})
+        max_lev = MAX_LEVERAGE_BY_PLAN.get(user.get("plan") or "free", 5)
+        return resp({"has_keys": has_keys, "api_key_preview": api_key[:8] + "..." if api_key else "", "max_leverage": max_lev, "plan": user.get("plan") or "free"})
 
     if not has_keys:
         return resp({"error": "Добавьте API ключи BingX в настройках"}, 400)
@@ -186,6 +189,9 @@ def handler(event: dict, context) -> dict:
         side = body.get("side", "BUY")       # BUY=LONG, SELL=SHORT
         amount = float(body.get("amount", 10))
         leverage = int(body.get("leverage", 10))
+        max_lev = MAX_LEVERAGE_BY_PLAN.get(user.get("plan") or "free", 5)
+        if leverage > max_lev:
+            return resp({"error": f"Плечо до {max_lev}x доступно на твоём тарифе. Оформи PRO для плеча до {MAX_LEVERAGE_BY_PLAN['pro']}x"}, 403)
         # Установить плечо
         bx("POST", "/openApi/swap/v2/trade/leverage", api_key, secret,
            {"symbol": symbol, "side": side, "leverage": leverage})

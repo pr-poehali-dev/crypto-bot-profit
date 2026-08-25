@@ -19,6 +19,16 @@ def check_session(session_id: str) -> bool:
     cur.close(); conn.close()
     return ok
 
+def get_session_plan(session_id: str) -> str:
+    conn = psycopg2.connect(DB_URL)
+    cur = conn.cursor()
+    cur.execute(f"SELECT u.plan FROM {SCHEMA}.sessions s JOIN {SCHEMA}.users u ON u.id = s.user_id WHERE s.id = %s AND s.expires_at > NOW()", (session_id,))
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return row[0] if row and row[0] else "free"
+
+MAX_MULTIPLIER_BY_PLAN = {"free": 1, "basic": 1, "pro": 3}
+
 def resp(body, code=200):
     return {"statusCode": code, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(body, ensure_ascii=False, default=str)}
 
@@ -236,11 +246,13 @@ def _handler_impl(event: dict, context) -> dict:
         trades   = db_get("bot_last_trades") or "[]"
         pnl      = db_get("bot_daily_pnl") or "0"
         saved_acct = db_get("trade_account_id") or ""
+        multiplier = float(db_get("trade_multiplier") or 1)
         total_instruments = db_get("watchlist_cache")
         count = len(json.loads(total_instruments)) if total_instruments else 0
         # Список счетов
         acc_data = tb("tinkoff.public.invest.api.contract.v1.UsersService/GetAccounts", {})
         accounts = [{"id": a.get("id"), "name": a.get("name", a.get("id"))} for a in acc_data.get("accounts", []) if a.get("id")]
+        plan = get_session_plan(session_id)
         return resp({
             "enabled": enabled == "true",
             "mode": mode,
@@ -252,6 +264,8 @@ def _handler_impl(event: dict, context) -> dict:
             "instruments_count": count,
             "accounts": accounts,
             "account_id": saved_acct or (accounts[0]["id"] if accounts else ""),
+            "multiplier": multiplier,
+            "max_multiplier": MAX_MULTIPLIER_BY_PLAN.get(plan, 1),
         })
 
     # ── GET список инструментов ─────────────────────────────────────────────
@@ -271,6 +285,14 @@ def _handler_impl(event: dict, context) -> dict:
             db_set("auto_bot_enabled", "true" if body.get("enabled") else "false")
             if body.get("account_id"):
                 db_set("trade_account_id", str(body.get("account_id")))
+            if "multiplier" in body:
+                plan = get_session_plan(session_id)
+                max_mult = MAX_MULTIPLIER_BY_PLAN.get(plan, 1)
+                mult = float(body.get("multiplier", 1))
+                if mult > max_mult:
+                    return resp({"error": f"Множитель до x{max_mult} доступен на твоём тарифе. Оформи PRO для множителя до x{MAX_MULTIPLIER_BY_PLAN['pro']}"}, 403)
+                if mult < 1: mult = 1
+                db_set("trade_multiplier", str(mult))
             return resp({"success": True})
 
         if action == "refresh_instruments":
@@ -326,6 +348,13 @@ def _handler_impl(event: dict, context) -> dict:
             elif mode == "25pct": order_amt = free_cash * 0.25
             elif mode == "50pct": order_amt = free_cash * 0.50
             else:                 order_amt = min(fixed_amount, free_cash * 0.90)
+
+            # Множитель объёма — ограничен тарифом (PRO)
+            plan = get_session_plan(session_id)
+            max_mult = MAX_MULTIPLIER_BY_PLAN.get(plan, 1)
+            multiplier = min(float(db_get("trade_multiplier") or 1), max_mult)
+            if multiplier < 1: multiplier = 1
+            order_amt = min(order_amt * multiplier, free_cash * 0.90)
 
             # Если денег мало — используем всё что есть (минимум 100 ₽)
             if order_amt < 100:

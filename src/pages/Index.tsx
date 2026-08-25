@@ -14,6 +14,8 @@ const PLAN_INFO = {
       { text: "Автотрейдинг (RSI/EMA/MACD)",    ok: false },
       { text: "Авто-продажа портфеля по %",      ok: false },
       { text: "Скальпинг-бот (до 8 сделок/день)", ok: false },
+      { text: "Плечо BingX до 5x",                ok: true },
+      { text: "Множитель объёма сделки до x3",   ok: false },
     ],
   },
   basic: {
@@ -27,6 +29,8 @@ const PLAN_INFO = {
       { text: "Автотрейдинг (RSI/EMA/MACD)",    ok: true },
       { text: "Авто-продажа портфеля по %",      ok: true },
       { text: "Скальпинг-бот (до 8 сделок/день)", ok: false },
+      { text: "Плечо BingX до 5x",                ok: true },
+      { text: "Множитель объёма сделки до x3",   ok: false },
     ],
   },
   pro: {
@@ -40,6 +44,8 @@ const PLAN_INFO = {
       { text: "Автотрейдинг (RSI/EMA/MACD)",    ok: true },
       { text: "Авто-продажа портфеля по %",      ok: true },
       { text: "Скальпинг-бот (до 8 сделок/день)", ok: true },
+      { text: "Плечо BingX до 20x",               ok: true },
+      { text: "Множитель объёма сделки до x3",   ok: true },
     ],
   },
 } as const;
@@ -2130,6 +2136,8 @@ interface BotStatus {
   accounts?: { id: string; name: string }[];
   account_id?: string;
   instruments_count?: number;
+  multiplier?: number;
+  max_multiplier?: number;
 }
 
 const INTERVALS = [
@@ -2164,6 +2172,8 @@ function AutoBotPage({
   const [mode, setMode] = useState("10pct");
   const [fixedAmount, setFixedAmount] = useState("5000");
   const [botAccountId, setBotAccountId] = useState("");
+  const [multiplier, setMultiplier] = useState(1);
+  const [maxMultiplier, setMaxMultiplier] = useState(1);
   const enabled = botEnabled;
   const setEnabled = setBotEnabled;
   const intervalMin = botIntervalMin;
@@ -2180,6 +2190,8 @@ function AutoBotPage({
       setMode(d.mode);
       setFixedAmount(String(d.fixed_amount));
       if (d.account_id) setBotAccountId(d.account_id);
+      if (d.multiplier) setMultiplier(d.multiplier);
+      if (d.max_multiplier) setMaxMultiplier(d.max_multiplier);
     } catch { /* skip */ }
     setLoading(false);
   }, []);
@@ -2200,7 +2212,7 @@ function AutoBotPage({
     try {
       const r = await authFetch(AUTOTRADER_URL, {
         method: "POST",
-        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled, account_id: botAccountId }),
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled: newEnabled, account_id: botAccountId, multiplier }),
       });
       const d = await r.json();
       if (d.success) {
@@ -2216,7 +2228,7 @@ function AutoBotPage({
     try {
       const r = await authFetch(AUTOTRADER_URL, {
         method: "POST",
-        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled, account_id: botAccountId }),
+        body: JSON.stringify({ action: "save_settings", mode, fixed_amount: parseFloat(fixedAmount) || 5000, stop_pct: 3, enabled, account_id: botAccountId, multiplier }),
       });
       const d = await r.json();
       if (d.success) { setMsg({ text: "✓ Настройки сохранены", ok: true }); loadStatus(); }
@@ -2523,6 +2535,26 @@ function AutoBotPage({
             />
           </div>
         )}
+
+        {/* Множитель объёма — PRO */}
+        <div className="mb-3">
+          <div className="section-label mb-1.5">МНОЖИТЕЛЬ ОБЪЁМА СДЕЛКИ {maxMultiplier <= 1 && <span className="text-[var(--cyber-yellow)]">(только PRO)</span>}</div>
+          <div className="flex gap-1.5">
+            {[1, 1.5, 2, 3].map(m => {
+              const locked = m > maxMultiplier;
+              return (
+                <button key={m} onClick={() => !locked && setMultiplier(m)} disabled={locked}
+                  className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all disabled:opacity-30 ${multiplier === m ? "border-[var(--cyber-cyan)] neon-text-cyan bg-[rgba(0,212,255,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                  x{m}{locked && " 🔒"}
+                </button>
+              );
+            })}
+          </div>
+          {maxMultiplier <= 1 && (
+            <div className="font-mono text-[9px] text-[var(--cyber-text-dim)] mt-1">Оформи PRO, чтобы торговать с увеличенным объёмом до x3</div>
+          )}
+        </div>
+
         <button onClick={() => saveSettings()}
           disabled={saving}
           className="w-full py-2 font-mono text-xs border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
@@ -3288,6 +3320,11 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
   const [accountId2, setAccountId2] = useState("");
   const [saving2, setSaving2] = useState(false);
 
+  // Множитель объёма — PRO
+  const [multiplier, setMultiplier] = useState(1);
+  const [maxMultiplier, setMaxMultiplier] = useState(1);
+  const [savingMult, setSavingMult] = useState(false);
+
   const loadStatus = useCallback(async () => {
     try {
       const r = await authFetch(`${SCALPER_URL}?action=status`);
@@ -3305,6 +3342,8 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
           setAmount2(String(d.settings2.amount));
           if (d.settings2.account_id) setAccountId2(d.settings2.account_id);
         }
+        if (d.multiplier) setMultiplier(d.multiplier);
+        if (d.max_multiplier) setMaxMultiplier(d.max_multiplier);
       }
     } catch { /* ignore */ }
   }, []);
@@ -3344,6 +3383,17 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
     setSaving2(false);
     setMsg({ text: "✓ Счёт 2 сохранён", ok: true });
     setTimeout(() => setMsg(null), 2000);
+  };
+
+  const saveMultiplier = async (m: number) => {
+    if (m > maxMultiplier) return;
+    setSavingMult(true);
+    const r = await authFetch(SCALPER_URL, { method: "POST", body: JSON.stringify({ action: "save_multiplier", multiplier: m }) });
+    const d = await r.json();
+    if (d.ok) { setMultiplier(m); setMsg({ text: `✓ Множитель x${m} сохранён`, ok: true }); }
+    else setMsg({ text: d.error || "Ошибка", ok: false });
+    setSavingMult(false);
+    setTimeout(() => setMsg(null), 3000);
   };
 
   const runOnce = async () => {
@@ -3450,6 +3500,25 @@ function ScalperPage({ scalpEnabled, setScalpEnabled, scalpIntervalMin, setScalp
       </div>
 
       {activeTab === "main" && (<>
+        {/* ─── Множитель объёма сделки — PRO ─── */}
+        <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-2">
+          <div className="section-label">МНОЖИТЕЛЬ ОБЪЁМА СДЕЛКИ {maxMultiplier <= 1 && <span className="text-[var(--cyber-yellow)]">(только PRO)</span>}</div>
+          <div className="flex gap-1.5">
+            {[1, 1.5, 2, 3].map(m => {
+              const locked = m > maxMultiplier;
+              return (
+                <button key={m} onClick={() => !locked && saveMultiplier(m)} disabled={locked || savingMult}
+                  className={`flex-1 py-1.5 font-mono text-xs border rounded-none transition-all disabled:opacity-30 ${multiplier === m ? "border-[var(--cyber-yellow)] text-[var(--cyber-yellow)] bg-[rgba(255,200,0,0.06)]" : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"}`}>
+                  x{m}{locked && " 🔒"}
+                </button>
+              );
+            })}
+          </div>
+          {maxMultiplier <= 1 && (
+            <div className="font-mono text-[9px] text-[var(--cyber-text-dim)]">Оформи PRO, чтобы скальпировать с увеличенным объёмом до x3</div>
+          )}
+        </div>
+
         {/* ─── СЧЁТ 1: Скальпинг (быстрый доход) ─── */}
         <div className="cyber-card rounded-none p-4 animate-fade-in-up space-y-3" style={{ borderColor: "var(--cyber-yellow)" }}>
           <div className="flex items-center justify-between">
@@ -4222,6 +4291,8 @@ function BingXPage() {
   const [futAmt, setFutAmt] = useState("10");
   const [futLev, setFutLev] = useState("10");
   const [futLoading, setFutLoading] = useState(false);
+  const [maxLeverage, setMaxLeverage] = useState(5);
+  const [userPlan, setUserPlan] = useState("free");
 
   // Скальпер
   const [scalpAmt, setScalpAmt] = useState("20");
@@ -4234,6 +4305,8 @@ function BingXPage() {
     authFetch(`${BINGX_URL}?action=check_keys`).then(r => r.json()).then(d => {
       setHasKeys(d.has_keys);
       setKeyPreview(d.api_key_preview || "");
+      if (d.max_leverage) setMaxLeverage(d.max_leverage);
+      if (d.plan) setUserPlan(d.plan);
       if (d.has_keys) setTab("balance");
     }).catch(() => {});
   }, []);
@@ -4521,11 +4594,16 @@ function BingXPage() {
                   className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
               </div>
               <div>
-                <div className="section-label mb-1">ПЛЕЧО x</div>
-                <input value={futLev} onChange={e => setFutLev(e.target.value)} type="number" min="1" max="125"
+                <div className="section-label mb-1">ПЛЕЧО x <span className="text-[var(--cyber-text-dim)]">(макс {maxLeverage}x)</span></div>
+                <input value={futLev} onChange={e => setFutLev(String(Math.min(Number(e.target.value) || 1, maxLeverage)))} type="number" min="1" max={maxLeverage}
                   className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
               </div>
             </div>
+            {userPlan !== "pro" && (
+              <div className="p-2 border border-[var(--cyber-yellow)] font-mono text-[10px] text-[var(--cyber-yellow)] flex items-center gap-1.5">
+                <Icon name="Zap" size={11} /> На PRO доступно плечо до 20x. Сейчас лимит {maxLeverage}x.
+              </div>
+            )}
             <button onClick={openFutures} disabled={futLoading}
               className={`w-full py-2.5 font-orbitron text-xs tracking-widest border rounded-none transition-all disabled:opacity-40 ${futSide === "BUY" ? "border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)]" : "border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.1)]"}`}>
               {futLoading ? "ОТКРЫВАЮ..." : `ОТКРЫТЬ ${futSide === "BUY" ? "LONG" : "SHORT"} x${futLev}`}
