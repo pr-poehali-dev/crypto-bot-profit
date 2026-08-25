@@ -341,8 +341,15 @@ function TBankTokenWidget() {
               {saving ? "..." : "СОХРАНИТЬ"}
             </button>
           </div>
-          <div className="font-mono text-[10px] text-[var(--cyber-text-dim)]">invest.tbank.ru → Настройки → Токен для Open API</div>
+          <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] leading-relaxed">
+            Нужен брокерский счёт Т-Банк Инвестиции → invest.tbank.ru → Настройки → Токен для Open API → «Полный доступ». Подробная инструкция и подключение — в разделе «Профиль».
+          </div>
           {msg && <div className={`font-mono text-[10px] ${msg.ok ? "profit" : "loss"}`}>{msg.text}</div>}
+        </div>
+      )}
+      {hasToken === false && !open && (
+        <div className="mt-2 font-mono text-[10px] text-[var(--cyber-text-dim)]">
+          Не получается подключить? Напиши в чат поддержки <Icon name="MessageCircle" size={10} className="inline neon-text mx-0.5" /> справа внизу — помогу лично.
         </div>
       )}
     </div>
@@ -3195,6 +3202,31 @@ function ProfilePage({ user }: { user: { username: string; role: string } }) {
       {/* Подписка */}
       {profile && <SubscribeButton currentPlan={profile.plan || "free"} />}
 
+      {/* Инструкция: как получить токен и подключить счёт */}
+      <div className="cyber-card rounded-none p-5 space-y-3 animate-fade-in-up border border-[rgba(0,212,255,0.25)]">
+        <div className="section-label text-[var(--cyber-cyan)] flex items-center gap-1.5">
+          <Icon name="BookOpen" size={13} /> КАК ПОДКЛЮЧИТЬ Т-БАНК К БОТУ
+        </div>
+        <div className="space-y-2.5">
+          {[
+            { n: 1, text: "Открой брокерский счёт в приложении Т-Банк Инвестиции (если ещё нет) — это бесплатно и занимает пару минут прямо в приложении банка." },
+            { n: 2, text: "На сайте invest.tbank.ru зайди в Настройки → раздел «Токены для API» (или «Настройки → Токен для Open API»)." },
+            { n: 3, text: "Нажми «Выпустить токен», выбери уровень доступа «Полный доступ» (нужен для торговли ботом) и подтверди по СМС." },
+            { n: 4, text: "Скопируй токен (начинается с t.) — он показывается один раз, сразу сохрани." },
+            { n: 5, text: "Вставь токен в поле ниже и нажми «Применить токены» — бот подключится к твоему брокерскому счёту." },
+          ].map(step => (
+            <div key={step.n} className="flex items-start gap-2.5">
+              <div className="shrink-0 w-5 h-5 rounded-full border border-[var(--cyber-cyan)] flex items-center justify-center font-mono text-[10px] text-[var(--cyber-cyan)] mt-0.5">{step.n}</div>
+              <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">{step.text}</div>
+            </div>
+          ))}
+        </div>
+        <div className="p-2.5 border border-[var(--cyber-yellow)] font-mono text-[10px] text-[var(--cyber-yellow)] flex items-start gap-1.5">
+          <Icon name="ShieldCheck" size={12} className="shrink-0 mt-0.5" />
+          Токен хранится в зашифрованном виде и используется только для торговли на твоём счёте — доступ к выводу средств им получить нельзя.
+        </div>
+      </div>
+
       {/* Токены */}
       {msg && <div className={`p-3 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
       <div className="cyber-card rounded-none p-5 space-y-3 animate-fade-in-up">
@@ -3221,6 +3253,17 @@ function ProfilePage({ user }: { user: { username: string; role: string } }) {
           className="w-full py-2.5 font-orbitron text-xs font-bold border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.1)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-2">
           {saving ? <><Spinner /><span>СОХРАНЕНИЕ...</span></> : "ПРИМЕНИТЬ ТОКЕНЫ"}
         </button>
+      </div>
+
+      {/* Если не получается — поддержка */}
+      <div className="cyber-card rounded-none p-4 border border-[rgba(0,255,136,0.25)] animate-fade-in-up">
+        <div className="flex items-start gap-2.5">
+          <Icon name="LifeBuoy" size={16} className="neon-text shrink-0 mt-0.5" />
+          <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">
+            <span className="text-[var(--cyber-text)] font-semibold">Не получается подключить токен или счёт?</span><br />
+            Напиши в чат поддержки — кнопка <Icon name="MessageCircle" size={11} className="inline neon-text mx-0.5" /> в правом нижнем углу экрана. Отвечаю лично и помогу разобраться.
+          </div>
+        </div>
       </div>
 
       {/* Реф-код */}
