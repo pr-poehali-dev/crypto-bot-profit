@@ -4014,7 +4014,7 @@ function BroadcastPanel() {
 function ReferralPage({ user }: { user: { username: string; role: string } }) {
   const [stats, setStats] = useState<{ ref_code: string; ref_count: number; refs: { id: number; username: string; joined: string }[]; total_earned: number } | null>(null);
   const [adminUsers, setAdminUsers] = useState<{ id: number; username: string; email: string; role: string; plan: string; ref_code: string; is_active: boolean; created_at: string; ref_earn: number; platform_earn: number }[]>([]);
-  const [revenue, setRevenue] = useState<{ revenue_total: number; revenue_today: number; revenue_month: number; ref_total: number; by_source: { source: string; total: number; cnt: number }[]; subscriptions: { plan: string; cnt: number }[]; settings: Record<string, string> } | null>(null);
+  const [revenue, setRevenue] = useState<{ revenue_total: number; revenue_today: number; revenue_month: number; ref_total: number; by_source: { source: string; total: number; cnt: number }[]; daily_chart: { date: string; day: string; total: number }[]; subscriptions: { plan: string; cnt: number }[]; settings: Record<string, string> } | null>(null);
   const [refPct, setRefPct] = useState("0.5");
   const [refMode, setRefMode] = useState("trade_amount");
   const [feePct, setFeePct] = useState("0.3");
@@ -4132,6 +4132,36 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
               </div>
             ))}
           </div>
+
+          {/* График дохода по дням */}
+          {revenue.daily_chart && revenue.daily_chart.length > 0 && (() => {
+            const chart = revenue.daily_chart.slice(-14);
+            const maxDay = Math.max(...chart.map(d => d.total), 1);
+            return (
+              <div className="cyber-card rounded-none p-3 mb-4">
+                <div className="section-label mb-3">ДОХОД ПО ДНЯМ — ПОСЛЕДНИЕ 14 ДНЕЙ</div>
+                <div className="flex items-end gap-1 h-24">
+                  {chart.map((d, i) => {
+                    const h = maxDay > 0 ? Math.round(d.total / maxDay * 100) : 0;
+                    return (
+                      <div key={d.date} className="flex-1 flex flex-col items-center gap-1 animate-fade-in-up" style={{ animationDelay: `${i * 40}ms`, opacity: 0 }}>
+                        <div className="font-mono text-[8px] text-center text-[var(--cyber-yellow)]">
+                          {d.total > 0 ? `${d.total.toFixed(0)}` : ""}
+                        </div>
+                        <div className="w-full rounded-none transition-all" style={{
+                          height: `${Math.max(h * 0.64, 3)}px`,
+                          background: "linear-gradient(to top, var(--cyber-yellow), rgba(255,200,0,0.35))",
+                          boxShadow: d.total > 0 ? "0 0 6px rgba(255,200,0,0.4)" : "none",
+                          opacity: d.total === 0 ? 0.15 : 1,
+                        }} />
+                        <div className="font-mono text-[8px] text-[var(--cyber-text-dim)] text-center">{d.day}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* По площадкам: Т-Банк vs BingX */}
           {revenue.by_source.length > 0 && (() => {

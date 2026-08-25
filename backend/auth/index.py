@@ -2,7 +2,7 @@
 Авторизация КиберБот — логин, регистрация, личный кабинет, токены.
 """
 import os, json, secrets, hashlib, random, string
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import psycopg2
 
 DB_URL = os.environ.get("DATABASE_URL", "")
@@ -111,6 +111,8 @@ def handler(event: dict, context) -> dict:
             month = db(f"SELECT COALESCE(SUM(revenue),0) as total FROM {SCHEMA}.platform_revenue WHERE created_at > NOW() - INTERVAL '30 days'")
             # Доход по источникам
             by_source = db(f"SELECT source, COALESCE(SUM(revenue),0) as total, COUNT(*) as cnt FROM {SCHEMA}.platform_revenue GROUP BY source")
+            # Доход по дням за последние 30 дней
+            by_day = db(f"SELECT DATE(created_at) as day, COALESCE(SUM(revenue),0) as total FROM {SCHEMA}.platform_revenue WHERE created_at > NOW() - INTERVAL '30 days' GROUP BY DATE(created_at) ORDER BY day")
             # Последние транзакции
             recent = db(f"SELECT pr.id, u.username, pr.source, pr.trade_amount, pr.fee_pct, pr.revenue, pr.description, pr.created_at FROM {SCHEMA}.platform_revenue pr JOIN {SCHEMA}.users u ON u.id = pr.user_id ORDER BY pr.created_at DESC LIMIT 30")
             # Рефералы
@@ -120,12 +122,20 @@ def handler(event: dict, context) -> dict:
             # Настройки монетизации
             settings_rows = db(f"SELECT key, value FROM {SCHEMA}.bot_settings WHERE user_id = 1 AND key IN ('platform_fee_pct','price_basic_rub','price_pro_rub','ref_earn_pct')")
             settings = {r["key"]: r["value"] for r in settings_rows}
+            # Заполняем пропущенные дни нулями (последние 30 дней, включая сегодня)
+            day_map = {str(d["day"]): float(d["total"]) for d in by_day}
+            daily_chart = []
+            for i in range(29, -1, -1):
+                dt = datetime.now(timezone.utc).date() - timedelta(days=i)
+                key = dt.isoformat()
+                daily_chart.append({"date": key, "day": dt.strftime("%-d.%m"), "total": round(day_map.get(key, 0), 2)})
             return resp({"ok": True,
                 "revenue_total":   float(total[0]["total"]),
                 "revenue_today":   float(today[0]["total"]),
                 "revenue_month":   float(month[0]["total"]),
                 "ref_total":       float(ref_total[0]["total"]) if ref_total else 0,
                 "by_source":       [{"source": s["source"], "total": float(s["total"]), "cnt": s["cnt"]} for s in by_source],
+                "daily_chart":     daily_chart,
                 "recent":          [{**r, "created_at": str(r["created_at"])} for r in recent],
                 "subscriptions":   [{"plan": s["plan"], "cnt": s["cnt"]} for s in subs],
                 "settings":        settings,
