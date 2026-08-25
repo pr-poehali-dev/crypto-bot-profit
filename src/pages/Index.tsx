@@ -3909,6 +3909,38 @@ function SubscribeButton({ currentPlan }: { currentPlan: string }) {
   );
 }
 
+/* ===== ADMIN: МАССОВАЯ РАССЫЛКА ===== */
+function BroadcastPanel() {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
+
+  const send = async () => {
+    if (!text.trim()) return;
+    setSending(true); setMsg(null);
+    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "chat_broadcast", message: text.trim() }) });
+    const d = await r.json();
+    setSending(false);
+    if (d.ok) { setMsg({ text: `✓ Отправлено ${d.sent_to} пользователям`, ok: true }); setText(""); }
+    else setMsg({ text: d.error || "Ошибка", ok: false });
+    setTimeout(() => setMsg(null), 4000);
+  };
+
+  return (
+    <div className="cyber-card rounded-none p-4 border border-[rgba(0,255,136,0.2)] animate-fade-in-up space-y-3">
+      <div className="section-label neon-text flex items-center gap-1.5"><Icon name="Megaphone" size={13} /> МАССОВАЯ РАССЫЛКА ВСЕМ ПОЛЬЗОВАТЕЛЯМ</div>
+      {msg && <div className={`p-2 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={3} maxLength={2000}
+        placeholder="Текст сообщения — придёт всем активным пользователям в чат"
+        className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)] resize-none" />
+      <button onClick={send} disabled={sending || !text.trim()}
+        className="w-full py-2 font-mono text-xs border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] rounded-none transition-all disabled:opacity-40 flex items-center justify-center gap-1.5">
+        <Icon name="Send" size={12} /> {sending ? "ОТПРАВКА..." : "ОТПРАВИТЬ ВСЕМ"}
+      </button>
+    </div>
+  );
+}
+
 /* ===== REFERRAL PAGE ===== */
 function ReferralPage({ user }: { user: { username: string; role: string } }) {
   const [stats, setStats] = useState<{ ref_code: string; ref_count: number; refs: { id: number; username: string; joined: string }[]; total_earned: number } | null>(null);
@@ -4054,6 +4086,9 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
           )}
         </div>
       )}
+
+      {/* ── ADMIN: Массовая рассылка ── */}
+      {user.role === "admin" && <BroadcastPanel />}
 
       {/* ── ADMIN: Настройки монетизации ── */}
       {user.role === "admin" && (
@@ -5115,6 +5150,175 @@ export default function Index() {
   return <AppShell user={user} onLogout={() => { clearSession(); setUser(null); }} />;
 }
 
+/* ===== ЧАТ С ПОДДЕРЖКОЙ (плавающая кнопка + окно) ===== */
+interface ChatMsg { id: number; user_id: number; sender_role: "user" | "admin"; message: string; is_broadcast: boolean; created_at: string; }
+interface ChatThread { user_id: number; username: string; last_message: string | null; last_at: string | null; unread: number; }
+
+function ChatWidget({ user }: { user: { username: string; role: string } }) {
+  const isAdmin = user.role === "admin";
+  const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [threads, setThreads] = useState<ChatThread[]>([]);
+  const [activeUserId, setActiveUserId] = useState<number | null>(null);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadUnread = useCallback(() => {
+    authFetch(`${AUTH_URL}?action=chat_unread`).then(r => r.json()).then(d => { if (d.ok) setUnread(d.unread); }).catch(() => {});
+  }, []);
+
+  const loadThreads = useCallback(() => {
+    authFetch(`${AUTH_URL}?action=chat_threads`).then(r => r.json()).then(d => { if (d.ok) setThreads(d.threads); }).catch(() => {});
+  }, []);
+
+  const loadMessages = useCallback((targetUserId?: number) => {
+    const q = isAdmin && targetUserId ? `&user_id=${targetUserId}` : "";
+    authFetch(`${AUTH_URL}?action=chat_messages${q}`).then(r => r.json()).then(d => {
+      if (d.ok) setMessages(d.messages);
+      loadUnread();
+      if (isAdmin) loadThreads();
+    }).catch(() => {});
+  }, [isAdmin, loadUnread, loadThreads]);
+
+  useInterval(loadUnread, 20000);
+
+  useEffect(() => {
+    if (!open) return;
+    if (isAdmin) {
+      loadThreads();
+      if (activeUserId) loadMessages(activeUserId);
+    } else {
+      loadMessages();
+    }
+    const t = setInterval(() => {
+      if (isAdmin) { loadThreads(); if (activeUserId) loadMessages(activeUserId); }
+      else loadMessages();
+    }, 8000);
+    return () => clearInterval(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeUserId]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, open]);
+
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    if (isAdmin && !activeUserId) return;
+    setSending(true);
+    const body: Record<string, unknown> = { action: "chat_send", message: text.trim() };
+    if (isAdmin) body.user_id = activeUserId;
+    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.ok) { setText(""); loadMessages(activeUserId ?? undefined); }
+    setSending(false);
+  };
+
+  return (
+    <>
+      <button onClick={() => setOpen(v => !v)}
+        className="fixed z-50 flex items-center justify-center w-12 h-12 rounded-full transition-all"
+        style={{
+          right: 16, bottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
+          background: "var(--cyber-surface)", border: "2px solid var(--cyber-green)",
+          boxShadow: "0 0 16px rgba(0,255,136,0.35)",
+        }}
+        title="Чат с поддержкой">
+        <Icon name={open ? "X" : "MessageCircle"} size={20} style={{ color: "var(--cyber-green)" }} />
+        {!open && unread > 0 && (
+          <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center font-mono text-[10px] font-bold"
+            style={{ background: "var(--cyber-red)", color: "#fff" }}>
+            {unread > 9 ? "9+" : unread}
+          </div>
+        )}
+      </button>
+
+      {open && (
+        <div className="fixed z-50 flex flex-col cyber-card-glow rounded-none"
+          style={{
+            right: 16, bottom: "calc(132px + env(safe-area-inset-bottom, 0px))",
+            width: "min(360px, calc(100vw - 32px))",
+            height: "min(480px, calc(100vh - 140px))",
+            background: "var(--cyber-surface)",
+          }}>
+          <div className="flex items-center justify-between px-3 py-2.5 border-b" style={{ borderColor: "var(--cyber-border)" }}>
+            <div className="flex items-center gap-2 min-w-0">
+              <Icon name="MessageCircle" size={15} className="neon-text flex-shrink-0" />
+              <span className="font-orbitron text-xs font-bold text-[var(--cyber-text)] truncate">
+                {isAdmin ? (threads.find(t => t.user_id === activeUserId)?.username ? `Чат · ${threads.find(t => t.user_id === activeUserId)?.username}` : "Чаты пользователей") : "Поддержка"}
+              </span>
+            </div>
+            {isAdmin && activeUserId !== null && (
+              <button onClick={() => setActiveUserId(null)} className="font-mono text-[10px] text-[var(--cyber-cyan)] flex-shrink-0">← Все чаты</button>
+            )}
+          </div>
+
+          {isAdmin && activeUserId === null ? (
+            <div className="flex-1 overflow-y-auto">
+              {threads.length === 0 && (
+                <div className="p-4 text-center font-mono text-[11px] text-[var(--cyber-text-dim)]">Пока нет обращений</div>
+              )}
+              {threads.map(t => (
+                <button key={t.user_id} onClick={() => setActiveUserId(t.user_id)}
+                  className="w-full text-left px-3 py-2.5 border-b hover:bg-[rgba(0,255,136,0.04)] transition-all flex items-center justify-between gap-2"
+                  style={{ borderColor: "rgba(26,58,74,0.4)" }}>
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs font-semibold text-[var(--cyber-text)] truncate">{t.username}</div>
+                    <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] truncate">{t.last_message}</div>
+                  </div>
+                  {t.unread > 0 && (
+                    <div className="flex-shrink-0 min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center font-mono text-[9px] font-bold"
+                      style={{ background: "var(--cyber-red)", color: "#fff" }}>{t.unread}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+                {messages.length === 0 && (
+                  <div className="p-4 text-center font-mono text-[11px] text-[var(--cyber-text-dim)]">
+                    {isAdmin ? "Нет сообщений" : "Напиши нам, если возникли вопросы — ответим как можно скорее"}
+                  </div>
+                )}
+                {messages.map(m => {
+                  const mine = isAdmin ? m.sender_role === "admin" : m.sender_role === "user";
+                  return (
+                    <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                      <div className="max-w-[80%] px-2.5 py-1.5 font-mono text-xs rounded-none"
+                        style={{
+                          background: mine ? "rgba(0,255,136,0.1)" : "var(--cyber-bg-3)",
+                          border: `1px solid ${mine ? "var(--cyber-green)" : "var(--cyber-border)"}`,
+                          color: "var(--cyber-text)",
+                        }}>
+                        {m.is_broadcast && <div className="text-[9px] text-[var(--cyber-yellow)] mb-0.5">📢 Рассылка</div>}
+                        <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.message}</div>
+                        <div className="text-[9px] text-[var(--cyber-text-dim)] mt-0.5">{new Date(m.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2 p-2.5 border-t" style={{ borderColor: "var(--cyber-border)" }}>
+                <input value={text} onChange={e => setText(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") send(); }}
+                  placeholder="Сообщение..."
+                  className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-2.5 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
+                <button onClick={send} disabled={sending || !text.trim()}
+                  className="flex items-center justify-center w-8 h-8 border border-[var(--cyber-green)] text-[var(--cyber-green)] rounded-none disabled:opacity-40 flex-shrink-0">
+                  <Icon name="Send" size={13} />
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ===== APP SHELL — основное приложение ===== */
 function AppShell({ user, onLogout }: { user: { username: string; role: string }; onLogout: () => void }) {
   const [activeSection, setActiveSection] = useState("dashboard");
@@ -5474,6 +5678,8 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
           })}
         </div>
       </nav>
+
+      <ChatWidget user={user} />
 
     </div>
   );

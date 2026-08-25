@@ -131,6 +131,41 @@ def handler(event: dict, context) -> dict:
                 "settings":        settings,
             })
 
+        if action == "chat_messages":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            target_id = user["user_id"]
+            if user["role"] == "admin" and params.get("user_id"):
+                target_id = int(params.get("user_id"))
+            rows = db(f"SELECT id, user_id, sender_role, message, is_broadcast, is_read, created_at FROM {SCHEMA}.chat_messages WHERE user_id = %s ORDER BY created_at ASC", (target_id,))
+            # Отмечаем прочитанными сообщения от собеседника
+            other_role = "admin" if user["role"] != "admin" else "user"
+            db(f"UPDATE {SCHEMA}.chat_messages SET is_read = TRUE WHERE user_id = %s AND sender_role = %s AND is_read = FALSE", (target_id, other_role))
+            return resp({"ok": True, "messages": [{**r, "created_at": str(r["created_at"])} for r in rows]})
+
+        if action == "chat_unread":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            if user["role"] == "admin":
+                cnt = db(f"SELECT COUNT(*) as c FROM {SCHEMA}.chat_messages WHERE sender_role = 'user' AND is_read = FALSE")
+            else:
+                cnt = db(f"SELECT COUNT(*) as c FROM {SCHEMA}.chat_messages WHERE user_id = %s AND sender_role = 'admin' AND is_read = FALSE", (user["user_id"],))
+            return resp({"ok": True, "unread": cnt[0]["c"] if cnt else 0})
+
+        if action == "chat_threads":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            rows = db(f"""
+                SELECT u.id as user_id, u.username,
+                    (SELECT message FROM {SCHEMA}.chat_messages m WHERE m.user_id = u.id ORDER BY m.created_at DESC LIMIT 1) as last_message,
+                    (SELECT created_at FROM {SCHEMA}.chat_messages m WHERE m.user_id = u.id ORDER BY m.created_at DESC LIMIT 1) as last_at,
+                    (SELECT COUNT(*) FROM {SCHEMA}.chat_messages m WHERE m.user_id = u.id AND m.sender_role = 'user' AND m.is_read = FALSE) as unread
+                FROM {SCHEMA}.users u
+                WHERE EXISTS (SELECT 1 FROM {SCHEMA}.chat_messages m WHERE m.user_id = u.id)
+                ORDER BY last_at DESC NULLS LAST
+            """)
+            return resp({"ok": True, "threads": [{**r, "last_at": str(r["last_at"]) if r["last_at"] else None} for r in rows]})
+
         if action == "ref_stats":
             user = check_session(session_id)
             if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
@@ -299,6 +334,33 @@ def handler(event: dict, context) -> dict:
             new_hash = hash_pw(new_pw)
             db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE username = %s", (new_hash, uname))
             return resp({"ok": True, "hash": new_hash})
+
+        # ── Отправка сообщения в чат (пользователь или админ отвечает) ────
+        if action == "chat_send":
+            user = check_session(session_id)
+            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
+            message = body.get("message", "").strip()
+            if not message: return resp({"ok": False, "error": "Пустое сообщение"}, 400)
+            if len(message) > 2000: return resp({"ok": False, "error": "Слишком длинное сообщение"}, 400)
+            if user["role"] == "admin":
+                target_id = body.get("user_id")
+                if not target_id: return resp({"ok": False, "error": "Не указан пользователь"}, 400)
+                db(f"INSERT INTO {SCHEMA}.chat_messages (user_id, sender_role, message) VALUES (%s, 'admin', %s)", (target_id, message))
+            else:
+                db(f"INSERT INTO {SCHEMA}.chat_messages (user_id, sender_role, message) VALUES (%s, 'user', %s)", (user["user_id"], message))
+            return resp({"ok": True})
+
+        # ── Массовая рассылка всем пользователям (только admin) ───────────
+        if action == "chat_broadcast":
+            user = check_session(session_id)
+            if not user or user["role"] != "admin": return resp({"ok": False, "error": "Нет доступа"}, 403)
+            message = body.get("message", "").strip()
+            if not message: return resp({"ok": False, "error": "Пустое сообщение"}, 400)
+            if len(message) > 2000: return resp({"ok": False, "error": "Слишком длинное сообщение"}, 400)
+            users = db(f"SELECT id FROM {SCHEMA}.users WHERE is_active = TRUE")
+            for u in users:
+                db(f"INSERT INTO {SCHEMA}.chat_messages (user_id, sender_role, message, is_broadcast) VALUES (%s, 'admin', %s, TRUE)", (u["id"], message))
+            return resp({"ok": True, "sent_to": len(users)})
 
         # ── Забыл пароль (по username + email) ───────────────────────────
         if action == "forgot_password":
