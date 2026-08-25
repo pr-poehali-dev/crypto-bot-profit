@@ -35,6 +35,15 @@ def check_session(sid):
 
 MAX_LEVERAGE_BY_PLAN = {"free": 5, "basic": 5, "pro": 20}
 
+def add_platform_revenue(user_id, trade_amount, source="bingx_trade_fee"):
+    if user_id == 1: return
+    pct_rows = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE key = 'platform_fee_pct' AND user_id = 1")
+    pct = float(pct_rows[0]["value"]) if pct_rows else 0.3
+    revenue = round(trade_amount * pct / 100, 2)
+    if revenue <= 0: return
+    db(f"INSERT INTO {SCHEMA}.platform_revenue (user_id, source, trade_amount, fee_pct, revenue, description) VALUES (%s, %s, %s, %s, %s, %s)",
+       (user_id, source, trade_amount, pct, revenue, f"Комиссия {pct}% со сделки BingX пользователя {user_id}"))
+
 # ── BingX подпись ─────────────────────────────────────────────────────────────
 def bx_sign(secret: str, params: dict) -> str:
     qs = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
@@ -203,6 +212,7 @@ def handler(event: dict, context) -> dict:
             "type": "MARKET",
             "quantity": amount,
         })
+        add_platform_revenue(uid, amount, source="bingx_futures_fee")
         return resp({"ok": True, "order": order.get("data", order)})
 
     # ── Закрыть фьючерс-позицию ──────────────────────────────────────────────
@@ -244,6 +254,7 @@ def handler(event: dict, context) -> dict:
         data = order.get("data", {})
         db(f"INSERT INTO {SCHEMA}.bingx_spot_trades (user_id, symbol, side, quantity, price, amount_usdt, order_id) VALUES (%s,%s,'BUY',%s,%s,%s,%s)",
            (uid, symbol, float(data.get("executedQty", 0)), float(data.get("price", 0)), quote_qty, data.get("orderId", "")))
+        add_platform_revenue(uid, quote_qty, source="bingx_spot_fee")
         return resp({"ok": True, "order": data})
 
     # ── Спот: продать ────────────────────────────────────────────────────────
@@ -332,6 +343,7 @@ def handler(event: dict, context) -> dict:
                     exec_price = float(d.get("price", price)) or price
                     db(f"INSERT INTO {SCHEMA}.bingx_spot_trades (user_id, symbol, side, quantity, price, amount_usdt, order_id, target_pct, stop_pct) VALUES (%s,%s,'BUY',%s,%s,%s,%s,%s,%s)",
                        (uid, sym, exec_qty, exec_price, amount, d.get("orderId",""), target_pct, stop_pct))
+                    add_platform_revenue(uid, amount, source="bingx_scalp_fee")
                     usdt_bal -= amount
                     open_count += 1
                     bought.append({
