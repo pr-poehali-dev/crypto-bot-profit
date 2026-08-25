@@ -4578,6 +4578,10 @@ function BingXPage() {
           <div className="border border-[rgba(255,200,0,0.3)] bg-[rgba(255,200,0,0.05)] p-3 text-[11px] font-mono text-[var(--cyber-yellow)]">
             ⚠ Не включай «Вывод средств» в правах API — это лишнее
           </div>
+          <div className="border border-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.05)] p-3 text-[11px] font-mono text-[var(--cyber-cyan)] flex items-start gap-2">
+            <Icon name="Wallet" size={13} className="shrink-0 mt-0.5" />
+            Перед торговлей пополни аккаунт BingX (раздел «Кошелёк» → «Пополнить» на bingx.com) — бот торгует средствами с твоего спотового или фьючерсного кошелька на бирже.
+          </div>
           <div className="space-y-3">
             <div>
               <div className="section-label mb-1">API KEY</div>
@@ -4595,6 +4599,17 @@ function BingXPage() {
             </button>
           </div>
           {hasKeys && <div className="text-[11px] font-mono text-[var(--cyber-green)]">✓ Ключи уже добавлены: {keyPreview}</div>}
+
+          {/* Если не получается — поддержка */}
+          <div className="border border-[rgba(0,255,136,0.25)] p-3 mt-1">
+            <div className="flex items-start gap-2.5">
+              <Icon name="LifeBuoy" size={15} className="neon-text shrink-0 mt-0.5" />
+              <div className="font-mono text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
+                <span className="text-[var(--cyber-text)] font-semibold">Не получается подключить ключи?</span><br />
+                Напиши в чат поддержки — кнопка <Icon name="MessageCircle" size={11} className="inline neon-text mx-0.5" /> в правом нижнем углу экрана. Отвечаю лично.
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
