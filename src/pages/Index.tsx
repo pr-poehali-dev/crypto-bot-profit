@@ -4396,199 +4396,48 @@ function ReferralPage({ user }: { user: { username: string; role: string } }) {
   );
 }
 
-/* ===== РУЧНОЙ УЧЁТ СДЕЛОК: СБЕРБАНК / ВТБ ===== */
-interface ManualTrade {
-  id: number; ticker: string; lots: number; buy_price: number; sell_price: number | null;
-  amount: number; pnl: number | null; pnl_pct: number | null; status: "open" | "closed";
-  comment: string | null; opened_at: string; closed_at: string | null;
-}
-interface ManualStats { trades_total: number; trades_win: number; pnl_total: number; open_amount: number; open_count: number }
-
-const MANUAL_BROKER_META: Record<string, { label: string; site: string }> = {
-  sberbank: { label: "СБЕРБАНК", site: "sberbank.ru/sberbank-online" },
-  vtb: { label: "ВТБ", site: "vtb.ru/personal/investicii" },
+/* ===== ИНФОРМАЦИЯ: СБЕРБАНК / ВТБ ===== */
+const MANUAL_BROKER_META: Record<string, { label: string; name: string; site: string }> = {
+  sberbank: { label: "СБЕРБАНК", name: "Сбербанк", site: "sberbank.ru/sberbank-online" },
+  vtb: { label: "ВТБ", name: "ВТБ", site: "vtb.ru/personal/investicii" },
 };
 
 function ManualBrokerPage({ broker }: { broker: "sberbank" | "vtb" }) {
   const meta = MANUAL_BROKER_META[broker];
-  const [trades, setTrades] = useState<ManualTrade[]>([]);
-  const [stats, setStats] = useState<ManualStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [ticker, setTicker] = useState("");
-  const [lots, setLots] = useState("1");
-  const [buyPrice, setBuyPrice] = useState("");
-  const [comment, setComment] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
-  const [closingId, setClosingId] = useState<number | null>(null);
-  const [sellPriceDraft, setSellPriceDraft] = useState("");
-
-  const load = useCallback(() => {
-    authFetch(`${AUTH_URL}?action=manual_list&broker=${broker}`)
-      .then(r => r.json())
-      .then(d => { if (d.ok) { setTrades(d.trades); setStats(d.stats); } })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [broker]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const addTrade = async () => {
-    if (!ticker.trim() || !buyPrice || Number(buyPrice) <= 0) return;
-    setAdding(true);
-    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({
-      action: "manual_add", broker, ticker: ticker.trim(), lots: Number(lots) || 1, buy_price: Number(buyPrice), comment: comment.trim(),
-    }) });
-    const d = await r.json();
-    setMsg({ text: d.ok ? "✓ Сделка добавлена" : d.error || "Ошибка", ok: !!d.ok });
-    if (d.ok) { setTicker(""); setBuyPrice(""); setComment(""); setLots("1"); load(); }
-    setAdding(false);
-    setTimeout(() => setMsg(null), 3000);
-  };
-
-  const closeTrade = async (id: number) => {
-    if (!sellPriceDraft || Number(sellPriceDraft) <= 0) return;
-    const r = await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "manual_close", id, sell_price: Number(sellPriceDraft) }) });
-    const d = await r.json();
-    if (d.ok) { setClosingId(null); setSellPriceDraft(""); load(); }
-    else setMsg({ text: d.error || "Ошибка", ok: false });
-  };
-
-  const deleteTrade = async (id: number) => {
-    await authFetch(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "manual_delete", id }) });
-    load();
-  };
 
   return (
-    <div className="space-y-4 animate-fade-in-up">
+    <div className="space-y-4 animate-fade-in-up max-w-lg">
       {/* Шапка */}
       <div className="cyber-card-glow rounded-none p-4 flex items-center gap-3">
-        <div className="w-10 h-10 flex items-center justify-center flex-shrink-0" style={{ border: "1px solid var(--cyber-green)", boxShadow: "0 0 12px rgba(0,255,136,0.3)" }}>
-          <Icon name="Building2" size={20} style={{ color: "var(--cyber-green)" }} />
+        <div className="w-10 h-10 flex items-center justify-center flex-shrink-0" style={{ border: "1px solid var(--cyber-yellow)", boxShadow: "0 0 12px rgba(255,200,0,0.3)" }}>
+          <Icon name="Building2" size={20} style={{ color: "var(--cyber-yellow)" }} />
         </div>
         <div>
-          <div className="font-orbitron text-base font-bold neon-text">{meta.label}</div>
-          <div className="text-[11px] font-mono text-[var(--cyber-text-dim)]">Ручной учёт сделок</div>
+          <div className="font-orbitron text-base font-bold text-[var(--cyber-yellow)]">{meta.label}</div>
+          <div className="text-[11px] font-mono text-[var(--cyber-text-dim)]">Автоматическая торговля недоступна</div>
         </div>
       </div>
 
       {/* Почему нет автоторговли */}
-      <div className="cyber-card rounded-none p-4 border border-[rgba(255,200,0,0.3)]">
-        <div className="flex items-start gap-2.5">
-          <Icon name="Info" size={16} className="text-[var(--cyber-yellow)] shrink-0 mt-0.5" />
-          <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed">
-            <span className="text-[var(--cyber-yellow)] font-semibold">Почему нет автоматической торговли?</span><br />
-            {meta.label === "СБЕРБАНК" ? "Сбербанк" : "ВТБ"} не предоставляет публичный API для алготрейдинга физлицам — в отличие от Т-Банка, где можно получить токен и торговать через код. Автоматическая торговля возможна только через терминал QUIK на отдельном компьютере с Windows, что не совместимо с облачным сервисом. Поэтому здесь ты торгуешь сам в приложении банка ({meta.site}), а сюда вносишь сделки вручную — бот считает статистику и прибыль.
-          </div>
+      <div className="cyber-card rounded-none p-5 space-y-3 border border-[rgba(255,200,0,0.3)]">
+        <div className="section-label text-[var(--cyber-yellow)] flex items-center gap-1.5">
+          <Icon name="Info" size={13} /> ПОЧЕМУ НЕ ПОЛУЧИТСЯ ПОДКЛЮЧИТЬ {meta.label}
         </div>
-      </div>
-
-      {/* Статистика */}
-      {stats && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="cyber-card rounded-none p-3 text-center">
-            <div className={`font-orbitron text-lg font-bold ${stats.pnl_total >= 0 ? "profit" : "loss"}`}>{stats.pnl_total >= 0 ? "+" : ""}{stats.pnl_total.toFixed(2)} ₽</div>
-            <div className="section-label mt-0.5">P&L закрытых</div>
-          </div>
-          <div className="cyber-card rounded-none p-3 text-center">
-            <div className="font-orbitron text-lg font-bold neon-text-cyan">{stats.trades_total > 0 ? Math.round(stats.trades_win / stats.trades_total * 100) : 0}%</div>
-            <div className="section-label mt-0.5">Винрейт ({stats.trades_total})</div>
-          </div>
-          <div className="cyber-card rounded-none p-3 text-center">
-            <div className="font-orbitron text-lg font-bold text-[var(--cyber-yellow)]">{stats.open_count}</div>
-            <div className="section-label mt-0.5">Открытых позиций</div>
-          </div>
-          <div className="cyber-card rounded-none p-3 text-center">
-            <div className="font-orbitron text-lg font-bold text-[var(--cyber-text)]">{stats.open_amount.toFixed(2)} ₽</div>
-            <div className="section-label mt-0.5">В открытых</div>
-          </div>
+        <div className="font-mono text-xs text-[var(--cyber-text-dim)] leading-relaxed space-y-2.5">
+          <p>
+            У Т-Банка есть открытый Invest API — любой пользователь может получить токен в приложении и торговать через сторонние программы, поэтому наш бот умеет с ним работать напрямую.
+          </p>
+          <p>
+            <span className="text-[var(--cyber-text)] font-semibold">{meta.name} не предоставляет такого доступа физлицам.</span> Единственный способ автоматической торговли у этого брокера — терминал QUIK, который должен непрерывно работать на отдельном компьютере с Windows. Наш бот работает в облаке и физически не может управлять программой на чужом компьютере — это разные архитектуры, а не вопрос кода.
+          </p>
+          <p>
+            Поэтому подключить {meta.name} к боту для автоматической торговли невозможно технически, а не потому что не сделали.
+          </p>
         </div>
-      )}
-
-      {/* Форма добавления сделки */}
-      {msg && <div className={`p-3 border font-mono text-xs ${msg.ok ? "border-[var(--cyber-green)] profit" : "border-[var(--cyber-red)] loss"}`}>{msg.text}</div>}
-      <div className="cyber-card rounded-none p-5 space-y-3">
-        <div className="section-label">ДОБАВИТЬ СДЕЛКУ (ПОКУПКА)</div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <div className="section-label text-[10px] mb-1">Тикер</div>
-            <input value={ticker} onChange={e => setTicker(e.target.value)} placeholder="SBER"
-              className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
-          </div>
-          <div>
-            <div className="section-label text-[10px] mb-1">Кол-во лотов</div>
-            <input value={lots} onChange={e => setLots(e.target.value)} type="number" min="1" placeholder="1"
-              className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
-          </div>
+        <div className="p-2.5 border border-[var(--cyber-cyan)] bg-[rgba(0,212,255,0.05)] font-mono text-[10px] text-[var(--cyber-cyan)] flex items-start gap-1.5">
+          <Icon name="Building2" size={12} className="shrink-0 mt-0.5" />
+          Торговать через {meta.name} можно только вручную в приложении банка — {meta.site}.
         </div>
-        <div>
-          <div className="section-label text-[10px] mb-1">Цена покупки за 1 лот, ₽</div>
-          <input value={buyPrice} onChange={e => setBuyPrice(e.target.value)} type="number" min="0" step="0.01" placeholder="250.50"
-            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
-        </div>
-        <div>
-          <div className="section-label text-[10px] mb-1">Комментарий (необязательно)</div>
-          <input value={comment} onChange={e => setComment(e.target.value)} placeholder="Например: покупка на дивидендах"
-            className="w-full bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-sm px-3 py-2 rounded-none outline-none focus:border-[var(--cyber-green)]" />
-        </div>
-        <button onClick={addTrade} disabled={adding || !ticker.trim() || !buyPrice}
-          className="w-full cyber-btn-primary py-2.5 font-orbitron text-xs tracking-widest disabled:opacity-40">
-          {adding ? "ДОБАВЛЕНИЕ..." : "ДОБАВИТЬ СДЕЛКУ"}
-        </button>
-      </div>
-
-      {/* Список сделок */}
-      <div className="space-y-2">
-        <div className="section-label">ИСТОРИЯ СДЕЛОК · {trades.length} записей</div>
-        {loading ? (
-          <div className="cyber-card rounded-none p-6 text-center font-mono text-xs text-[var(--cyber-text-dim)]">Загрузка...</div>
-        ) : trades.length === 0 ? (
-          <div className="cyber-card rounded-none p-6 text-center font-mono text-xs text-[var(--cyber-text-dim)]">Сделок пока нет — добавь первую выше</div>
-        ) : trades.map(t => {
-          const isClosed = t.status === "closed";
-          const isProfit = (t.pnl ?? 0) >= 0;
-          const col = isClosed ? (isProfit ? "var(--cyber-green)" : "var(--cyber-red)") : "var(--cyber-yellow)";
-          return (
-            <div key={t.id} className="cyber-card rounded-none p-3" style={{ borderLeft: `3px solid ${col}` }}>
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-sm font-bold text-[var(--cyber-text)]">{t.ticker} × {t.lots}</span>
-                <span className="font-orbitron text-xs font-bold" style={{ color: col }}>
-                  {isClosed && t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${t.pnl.toFixed(2)} ₽ (${t.pnl_pct?.toFixed(1)}%)` : `${t.amount.toFixed(2)} ₽`}
-                </span>
-              </div>
-              <div className="flex items-center justify-between mt-1 font-mono text-[10px] text-[var(--cyber-text-dim)]">
-                <span>Покупка: {t.buy_price.toFixed(2)} ₽{isClosed && t.sell_price ? ` → Продажа: ${t.sell_price.toFixed(2)} ₽` : ""}</span>
-                <span>{new Date(t.opened_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}</span>
-              </div>
-              {t.comment && <div className="mt-1 font-mono text-[10px] text-[var(--cyber-text-dim)] italic">«{t.comment}»</div>}
-              {!isClosed && (
-                <div className="mt-2 flex gap-2 items-center">
-                  {closingId === t.id ? (
-                    <>
-                      <input value={sellPriceDraft} onChange={e => setSellPriceDraft(e.target.value)} type="number" min="0" step="0.01" placeholder="Цена продажи"
-                        className="flex-1 bg-[var(--cyber-bg-3)] border border-[var(--cyber-border)] text-[var(--cyber-text)] font-mono text-xs px-2 py-1.5 rounded-none outline-none focus:border-[var(--cyber-green)]" />
-                      <button onClick={() => closeTrade(t.id)} className="px-3 py-1.5 font-mono text-[10px] border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.08)] transition-all">
-                        ЗАКРЫТЬ
-                      </button>
-                      <button onClick={() => { setClosingId(null); setSellPriceDraft(""); }} className="px-2 py-1.5 font-mono text-[10px] text-[var(--cyber-text-dim)]">
-                        ✕
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => setClosingId(t.id)} className="px-3 py-1.5 font-mono text-[10px] border border-[var(--cyber-cyan)] text-[var(--cyber-cyan)] hover:bg-[rgba(0,212,255,0.08)] transition-all">
-                        ПРОДАТЬ / ЗАКРЫТЬ
-                      </button>
-                      <button onClick={() => deleteTrade(t.id)} className="px-3 py-1.5 font-mono text-[10px] border border-[var(--cyber-red)] text-[var(--cyber-red)] hover:bg-[rgba(255,61,113,0.08)] transition-all ml-auto">
-                        УДАЛИТЬ
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
       </div>
 
       {/* Поддержка */}
@@ -4596,7 +4445,7 @@ function ManualBrokerPage({ broker }: { broker: "sberbank" | "vtb" }) {
         <div className="flex items-start gap-2.5">
           <Icon name="LifeBuoy" size={15} className="neon-text shrink-0 mt-0.5" />
           <div className="font-mono text-[11px] text-[var(--cyber-text-dim)] leading-relaxed">
-            <span className="text-[var(--cyber-text)] font-semibold">Есть вопросы по учёту сделок?</span><br />
+            <span className="text-[var(--cyber-text)] font-semibold">Остались вопросы?</span><br />
             Напиши в чат поддержки — кнопка <Icon name="MessageCircle" size={11} className="inline neon-text mx-0.5" /> в правом нижнем углу экрана. Отвечаю лично.
           </div>
         </div>

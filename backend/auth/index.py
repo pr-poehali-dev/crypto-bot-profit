@@ -191,36 +191,6 @@ def handler(event: dict, context) -> dict:
                 "total_earned": float(total_earn[0]["total"]) if total_earn else 0,
             })
 
-        if action == "manual_list":
-            user = check_session(session_id)
-            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
-            broker = params.get("broker", "")
-            if broker not in ("sberbank", "vtb"):
-                return resp({"ok": False, "error": "Неверный брокер"}, 400)
-            trades = db(
-                f"SELECT id, ticker, lots, buy_price, sell_price, amount, pnl, pnl_pct, status, comment, opened_at, closed_at "
-                f"FROM {SCHEMA}.manual_trades WHERE user_id = %s AND broker = %s ORDER BY opened_at DESC LIMIT 200",
-                (user["user_id"], broker))
-            stats_rows = db(
-                f"SELECT COUNT(*) FILTER (WHERE status='closed') as trades_total, "
-                f"COUNT(*) FILTER (WHERE status='closed' AND pnl > 0) as trades_win, "
-                f"COALESCE(SUM(pnl) FILTER (WHERE status='closed'),0) as pnl_total, "
-                f"COALESCE(SUM(amount) FILTER (WHERE status='open'),0) as open_amount, "
-                f"COUNT(*) FILTER (WHERE status='open') as open_count "
-                f"FROM {SCHEMA}.manual_trades WHERE user_id = %s AND broker = %s",
-                (user["user_id"], broker))
-            s = stats_rows[0]
-            return resp({"ok": True,
-                "trades": [{**t, "opened_at": str(t["opened_at"]), "closed_at": str(t["closed_at"]) if t["closed_at"] else None,
-                            "buy_price": float(t["buy_price"]), "sell_price": float(t["sell_price"]) if t["sell_price"] is not None else None,
-                            "amount": float(t["amount"]), "pnl": float(t["pnl"]) if t["pnl"] is not None else None,
-                            "pnl_pct": float(t["pnl_pct"]) if t["pnl_pct"] is not None else None} for t in trades],
-                "stats": {
-                    "trades_total": s["trades_total"], "trades_win": s["trades_win"],
-                    "pnl_total": float(s["pnl_total"]), "open_amount": float(s["open_amount"]),
-                    "open_count": s["open_count"],
-                }})
-
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 
     # ── POST ───────────────────────────────────────────────────────────────
@@ -418,60 +388,6 @@ def handler(event: dict, context) -> dict:
             new_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
             db(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE id = %s", (hash_pw(new_pw), u["id"]))
             return resp({"ok": True, "new_password": new_pw})
-
-        # ── Ручной учёт сделок: Сбербанк / ВТБ ────────────────────────────
-        if action == "manual_add":
-            user = check_session(session_id)
-            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
-            broker = body.get("broker", "")
-            if broker not in ("sberbank", "vtb"):
-                return resp({"ok": False, "error": "Неверный брокер"}, 400)
-            ticker = (body.get("ticker") or "").strip().upper()
-            try:
-                lots = int(body.get("lots") or 1)
-                buy_price = float(body.get("buy_price") or 0)
-            except (TypeError, ValueError):
-                return resp({"ok": False, "error": "Некорректные числа"}, 400)
-            comment = (body.get("comment") or "").strip()[:256]
-            if not ticker or buy_price <= 0 or lots <= 0:
-                return resp({"ok": False, "error": "Заполни тикер, цену и количество"}, 400)
-            amount = round(buy_price * lots, 2)
-            row = db(
-                f"INSERT INTO {SCHEMA}.manual_trades (user_id, broker, ticker, lots, buy_price, amount, status, comment) "
-                f"VALUES (%s,%s,%s,%s,%s,%s,'open',%s) RETURNING id",
-                (user["user_id"], broker, ticker, lots, buy_price, amount, comment))
-            return resp({"ok": True, "id": row[0]["id"]})
-
-        if action == "manual_close":
-            user = check_session(session_id)
-            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
-            trade_id = body.get("id")
-            try:
-                sell_price = float(body.get("sell_price") or 0)
-            except (TypeError, ValueError):
-                return resp({"ok": False, "error": "Некорректная цена"}, 400)
-            if not trade_id or sell_price <= 0:
-                return resp({"ok": False, "error": "Укажи цену продажи"}, 400)
-            trade = db(
-                f"SELECT lots, amount FROM {SCHEMA}.manual_trades WHERE id = %s AND user_id = %s AND status = 'open'",
-                (trade_id, user["user_id"]))
-            if not trade:
-                return resp({"ok": False, "error": "Сделка не найдена"}, 404)
-            t = trade[0]
-            sell_amount = round(sell_price * t["lots"], 2)
-            pnl = round(sell_amount - float(t["amount"]), 2)
-            pnl_pct = round(pnl / float(t["amount"]) * 100, 2) if float(t["amount"]) > 0 else 0
-            db(
-                f"UPDATE {SCHEMA}.manual_trades SET sell_price = %s, pnl = %s, pnl_pct = %s, status = 'closed', closed_at = NOW() WHERE id = %s AND user_id = %s",
-                (sell_price, pnl, pnl_pct, trade_id, user["user_id"]))
-            return resp({"ok": True, "pnl": pnl, "pnl_pct": pnl_pct})
-
-        if action == "manual_delete":
-            user = check_session(session_id)
-            if not user: return resp({"ok": False, "error": "Не авторизован"}, 401)
-            trade_id = body.get("id")
-            db(f"DELETE FROM {SCHEMA}.manual_trades WHERE id = %s AND user_id = %s", (trade_id, user["user_id"]))
-            return resp({"ok": True})
 
         return resp({"error": f"Неизвестный action: {action}"}, 400)
 
