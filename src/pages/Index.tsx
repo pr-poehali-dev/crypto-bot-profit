@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import CryptoExchangesPage from "@/components/CryptoExchangesPage";
+import AltynWallet from "@/components/AltynWallet";
 
 // ── Тарифные планы (единый источник правды) ──────────────────────────────────
 const PLAN_INFO = {
@@ -735,191 +736,8 @@ function TradingPage() {
 }
 
 /* ===== WALLET ===== */
-type PayMethod = "bank_card" | "yoomoney" | "crypto_usdt" | "crypto_btc";
-
-interface TxResult { success: boolean; transaction_id?: string; confirmation_url?: string; amount: number; fee: number; net_amount: number; time_estimate: string; method_name: string; message?: string; demo?: boolean; }
-
 function WalletPage() {
-  const [tab, setTab] = useState<"deposit" | "withdraw">("deposit");
-  const [method, setMethod] = useState<PayMethod>("bank_card");
-  const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("RUB");
-  const [cardNumber, setCardNumber] = useState("");
-  const [yoWallet, setYoWallet] = useState("");
-  const [cryptoAddress, setCryptoAddress] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<TxResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const depositMethods = [
-    { id: "bank_card", icon: "CreditCard", label: "Банк. карта", sub: "Visa/MС/МИР" },
-    { id: "yoomoney", icon: "Wallet", label: "ЮMoney", sub: "мгновенно" },
-    { id: "crypto_usdt", icon: "CircleDollarSign", label: "USDT TRC-20", sub: "10-30 мин" },
-    { id: "crypto_btc", icon: "Bitcoin", label: "Bitcoin", sub: "30-60 мин" },
-  ];
-
-  const withdrawMethods = [
-    { id: "bank_card", icon: "CreditCard", label: "Банк. карта", sub: "1-3 дня, 1.5%" },
-    { id: "yoomoney", icon: "Wallet", label: "ЮMoney", sub: "мгновенно, 0.5%" },
-    { id: "crypto_usdt", icon: "CircleDollarSign", label: "USDT TRC-20", sub: "10-30 мин, 1%" },
-    { id: "crypto_btc", icon: "Bitcoin", label: "Bitcoin", sub: "30-60 мин, 1%" },
-  ];
-
-  const methods = tab === "deposit" ? depositMethods : withdrawMethods;
-
-  async function submit() {
-    setLoading(true); setError(null); setResult(null);
-    try {
-      const r = await fetch(PAYMENT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: tab, method, amount: parseFloat(amount), currency })
-      });
-      const d = await r.json();
-      if (!r.ok) { setError(d.error || "Ошибка"); }
-      else {
-        setResult(d);
-        if (d.confirmation_url) window.open(d.confirmation_url, "_blank");
-      }
-    } catch {
-      setError("Ошибка соединения с сервером");
-    }
-    setLoading(false);
-  }
-
-  return (
-    <div className="max-w-2xl space-y-4">
-      {/* Balance */}
-      <div className="grid grid-cols-3 gap-3 animate-fade-in-up">
-        {[
-          { label: "RUB баланс", val: "84,320 ₽", color: "green" },
-          { label: "USDT баланс", val: "12,450 $", color: "cyan" },
-          { label: "BTC баланс", val: "0.1842", color: "yellow" },
-        ].map(b => (
-          <div key={b.label} className="cyber-card-glow rounded-none p-4">
-            <div className="section-label mb-1">{b.label}</div>
-            <div className={`font-orbitron text-lg font-bold ${b.color === "green" ? "neon-text" : b.color === "cyan" ? "neon-text-cyan" : "text-[var(--cyber-yellow)]"}`}>{b.val}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="cyber-card-glow rounded-none p-5 animate-fade-in-up delay-100">
-        {/* Tab */}
-        <div className="flex gap-2 mb-5">
-          {(["deposit", "withdraw"] as const).map(t => (
-            <button key={t} onClick={() => { setTab(t); setResult(null); setError(null); }}
-              className={`flex-1 py-2 font-mono text-xs rounded-none transition-all border ${
-                tab === t ? "bg-[rgba(0,255,136,0.15)] border-[var(--cyber-green)] text-[var(--cyber-green)]"
-                : "border-[var(--cyber-border)] text-[var(--cyber-text-dim)]"
-              }`}>
-              {t === "deposit" ? "ПОПОЛНЕНИЕ" : "ВЫВОД"}
-            </button>
-          ))}
-        </div>
-
-        {/* Method */}
-        <div className="section-label mb-2">Способ {tab === "deposit" ? "пополнения" : "вывода"}</div>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {methods.map(m => (
-            <button key={m.id} onClick={() => setMethod(m.id as PayMethod)}
-              className={`flex items-center gap-3 p-3 rounded-none border transition-all ${
-                method === m.id ? "border-[var(--cyber-green)] bg-[rgba(0,255,136,0.08)]" : "border-[var(--cyber-border)] hover:border-[rgba(0,255,136,0.3)]"
-              }`}>
-              <Icon name={m.icon} size={18} style={{ color: method === m.id ? "var(--cyber-green)" : "var(--cyber-text-dim)" }} />
-              <div className="text-left">
-                <div className="font-mono text-xs text-[var(--cyber-text)]">{m.label}</div>
-                <div className="section-label" style={{ fontSize: "0.6rem" }}>{m.sub}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        {/* Details */}
-        {method === "bank_card" && (
-          <div className="mb-3">
-            <div className="section-label mb-1">{tab === "deposit" ? "Номер карты для списания" : "Номер карты для зачисления"}</div>
-            <input value={cardNumber} onChange={e => setCardNumber(e.target.value.replace(/\D/g, "").slice(0, 16))}
-              className="cyber-input rounded-none" placeholder="0000 0000 0000 0000"
-              style={{ letterSpacing: "0.15em" }} />
-          </div>
-        )}
-        {method === "yoomoney" && (
-          <div className="mb-3">
-            <div className="section-label mb-1">Номер кошелька ЮMoney</div>
-            <input value={yoWallet} onChange={e => setYoWallet(e.target.value)}
-              className="cyber-input rounded-none" placeholder="410011234567890" />
-          </div>
-        )}
-        {(method === "crypto_usdt" || method === "crypto_btc") && tab === "withdraw" && (
-          <div className="mb-3">
-            <div className="section-label mb-1">Адрес {method === "crypto_usdt" ? "USDT TRC-20" : "Bitcoin"} кошелька</div>
-            <input value={cryptoAddress} onChange={e => setCryptoAddress(e.target.value)}
-              className="cyber-input rounded-none" placeholder={method === "crypto_usdt" ? "TXxx..." : "bc1q..."} />
-          </div>
-        )}
-        {(method === "crypto_usdt" || method === "crypto_btc") && tab === "deposit" && (
-          <div className="mb-3 cyber-card rounded-none p-3">
-            <div className="section-label mb-1">Адрес для пополнения {method === "crypto_usdt" ? "USDT TRC-20" : "Bitcoin"}</div>
-            <div className="font-mono text-xs neon-text-cyan break-all">
-              {method === "crypto_usdt" ? "TJDxxx...DEMO_ADDRESS_SET_IN_SETTINGS" : "bc1qDemo...DEMO_ADDRESS_SET_IN_SETTINGS"}
-            </div>
-            <div className="section-label mt-2">После пополнения средства поступят автоматически</div>
-          </div>
-        )}
-
-        {/* Amount + currency */}
-        <div className="flex gap-2 mb-4">
-          <div className="flex-1">
-            <div className="section-label mb-1">Сумма</div>
-            <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
-              className="cyber-input rounded-none" placeholder="0" />
-          </div>
-          <div className="w-28">
-            <div className="section-label mb-1">Валюта</div>
-            <select value={currency} onChange={e => setCurrency(e.target.value)} className="cyber-select rounded-none">
-              <option style={{ background: "#0a1520" }}>RUB</option>
-              <option style={{ background: "#0a1520" }}>USD</option>
-              <option style={{ background: "#0a1520" }}>USDT</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="cyber-card rounded-none p-3 mb-3 border-[var(--cyber-red)] border text-[var(--cyber-red)] font-mono text-xs">{error}</div>
-        )}
-
-        {/* Result */}
-        {result && (
-          <div className="cyber-card rounded-none p-4 mb-3 border border-[var(--cyber-green)]">
-            <div className="flex items-center gap-2 mb-2">
-              <Icon name="CheckCircle" size={16} style={{ color: "var(--cyber-green)" }} />
-              <span className="font-orbitron text-sm neon-text">
-                {result.confirmation_url ? "ПЕРЕХОД К ОПЛАТЕ..." : "ЗАЯВКА СОЗДАНА"}
-              </span>
-            </div>
-            <div className="space-y-1 font-mono text-xs">
-              {result.transaction_id && <div><span className="text-[var(--cyber-text-dim)]">ID:</span> <span className="neon-text-cyan">{result.transaction_id}</span></div>}
-              <div><span className="text-[var(--cyber-text-dim)]">Метод:</span> <span className="text-[var(--cyber-text)]">{result.method_name}</span></div>
-              <div><span className="text-[var(--cyber-text-dim)]">Сумма:</span> <span className="neon-text">+{result.net_amount} {currency}</span></div>
-              {result.fee > 0 && <div><span className="text-[var(--cyber-text-dim)]">Комиссия:</span> <span className="loss">{result.fee}</span></div>}
-              <div><span className="text-[var(--cyber-text-dim)]">Время:</span> <span className="text-[var(--cyber-yellow)]">{result.time_estimate}</span></div>
-            </div>
-            {result.demo && (
-              <div className="mt-3 section-label text-[var(--cyber-yellow)]" style={{ fontSize: "0.65rem" }}>
-                ⚠ Демо-режим. Для реальных платежей подключите ЮKassa: добавьте YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY в секреты проекта.
-              </div>
-            )}
-          </div>
-        )}
-
-        <button onClick={submit} disabled={loading || !amount}
-          className="w-full py-3 font-orbitron text-sm font-bold tracking-widest rounded-none transition-all bg-[rgba(0,255,136,0.15)] border border-[var(--cyber-green)] text-[var(--cyber-green)] hover:bg-[rgba(0,255,136,0.25)] hover:shadow-[0_0_20px_rgba(0,255,136,0.4)] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-          {loading ? <><Spinner /><span>ОБРАБОТКА...</span></> : tab === "deposit" ? "ПОПОЛНИТЬ" : "ВЫВЕСТИ"}
-        </button>
-      </div>
-    </div>
-  );
+  return <AltynWallet paymentUrl={PAYMENT_URL} authFetch={authFetch} />;
 }
 
 /* ===== STRATEGIES ===== */
@@ -3151,7 +2969,7 @@ function SettingsPage({ user, onLogout }: { user: { username: string; role: stri
 
 /* ===== PROFILE PAGE ===== */
 function ProfilePage({ user }: { user: { username: string; role: string } }) {
-  const [profile, setProfile] = useState<{ ref_code: string; has_tbank_token: boolean; has_binance_key: boolean; email: string; plan: string } | null>(null);
+  const [profile, setProfile] = useState<{ ref_code: string; has_tbank_token: boolean; has_binance_key: boolean; email: string; plan: string; plan_days_left?: number | null; plan_expires_at?: string | null; wallet_balance?: number } | null>(null);
   const [tbankToken, setTbankToken] = useState("");
   const [binanceKey, setBinanceKey] = useState("");
   const [binanceSec, setBinanceSec] = useState("");
@@ -3204,7 +3022,7 @@ function ProfilePage({ user }: { user: { username: string; role: string } }) {
       </div>
 
       {/* Подписка */}
-      {profile && <SubscribeButton currentPlan={profile.plan || "free"} />}
+      {profile && <SubscribeButton currentPlan={profile.plan || "free"} daysLeft={profile.plan_days_left ?? null} expiresAt={profile.plan_expires_at ?? null} />}
 
       {/* Инструкция: как получить токен и подключить счёт */}
       <div className="cyber-card rounded-none p-5 space-y-3 animate-fade-in-up border border-[rgba(0,212,255,0.25)]">
@@ -3890,7 +3708,7 @@ function PaymentGatewayPanel() {
 }
 
 /* ===== SUBSCRIBE BUTTON (для пользователей) ===== */
-function SubscribeButton({ currentPlan }: { currentPlan: string }) {
+function SubscribeButton({ currentPlan, daysLeft = null, expiresAt = null }: { currentPlan: string; daysLeft?: number | null; expiresAt?: string | null }) {
   const [open, setOpen]       = useState(false);
   const [selected, setSelected] = useState<PlanKey>("pro");
   const [loading, setLoading] = useState(false);
@@ -3933,6 +3751,11 @@ function SubscribeButton({ currentPlan }: { currentPlan: string }) {
           <div>
             <div className="font-orbitron text-xs font-bold" style={{ color: info.color }}>✓ {info.name} — активна</div>
             <div className="font-mono text-[10px] text-[var(--cyber-text-dim)] mt-0.5">{info.price} ₽/мес</div>
+            {daysLeft !== null && (
+              <div className="font-mono text-[11px] mt-1" style={{ color: daysLeft <= 3 ? "var(--cyber-red)" : info.color }}>
+                Осталось {daysLeft} дн.{expiresAt ? ` · до ${new Date(expiresAt).toLocaleDateString("ru-RU")}` : ""}
+              </div>
+            )}
           </div>
           <Icon name="CheckCircle" size={20} style={{ color: info.color }} />
         </div>

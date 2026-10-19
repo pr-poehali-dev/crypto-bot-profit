@@ -11,16 +11,36 @@
       "method": "GET",
       "path": "/?action=status",
       "expectedStatus": 200,
-      "expectedBody": {"robokassa": {}, "yookassa": {}, "plans": {}},
+      "expectedBody": {
+        "robokassa": {},
+        "yookassa": {},
+        "plans": {}
+      },
       "bodyMatcher": "partial"
     },
     {
       "name": "POST create_payment — нет сессии",
       "method": "POST",
       "path": "/",
-      "body": {"action": "create_payment", "plan": "basic", "provider": "robokassa"},
+      "body": {
+        "action": "create_payment",
+        "plan": "basic",
+        "provider": "robokassa"
+      },
       "expectedStatus": 401,
-      "expectedBody": {"error": "Не авторизован"},
+      "expectedBody": {
+        "error": "Не авторизован"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "GET wallet — нет сессии",
+      "method": "GET",
+      "path": "/?action=wallet",
+      "expectedStatus": 401,
+      "expectedBody": {
+        "error": "Не авторизован"
+      },
       "bodyMatcher": "partial"
     }
   ]

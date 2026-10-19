@@ -41,7 +41,7 @@ def check_session(session_id):
     return rows[0] if rows else None
 
 def get_user_full(user_id):
-    rows = db(f"SELECT id, username, email, role, tbank_token, binance_api_key, binance_secret_key, ref_code, referred_by, plan, created_at FROM {SCHEMA}.users WHERE id = %s", (user_id,))
+    rows = db(f"SELECT id, username, email, role, tbank_token, binance_api_key, binance_secret_key, ref_code, referred_by, plan, plan_expires_at, wallet_balance, created_at FROM {SCHEMA}.users WHERE id = %s", (user_id,))
     return rows[0] if rows else None
 
 def create_session(user_id, ip="", ua=""):
@@ -78,7 +78,10 @@ def handler(event: dict, context) -> dict:
             # Скрываем секреты — показываем только наличие
             return resp({"ok": True, "user": {
                 "id": u["id"], "username": u["username"], "email": u["email"] or "",
-                "role": u["role"], "plan": u["plan"] or "free",
+                "role": u["role"], "plan": ("free" if (u["plan_expires_at"] and u["plan_expires_at"] < datetime.now(timezone.utc)) else (u["plan"] or "free")),
+                "plan_expires_at": str(u["plan_expires_at"]) if u["plan_expires_at"] else None,
+                "plan_days_left": max(0, -(-int((u["plan_expires_at"] - datetime.now(timezone.utc)).total_seconds()) // 86400)) if u["plan_expires_at"] else None,
+                "wallet_balance": float(u["wallet_balance"] or 0),
                 "ref_code": u["ref_code"] or "",
                 "has_tbank_token": bool(u["tbank_token"]),
                 "has_binance_key": bool(u["binance_api_key"]),

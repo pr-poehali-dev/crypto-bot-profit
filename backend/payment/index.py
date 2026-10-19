@@ -53,10 +53,18 @@ def get_plan_price(plan):
     row = db(f"SELECT value FROM {SCHEMA}.bot_settings WHERE user_id=1 AND key=%s", (f"price_{plan}_rub",))
     return int(float(row[0]["value"])) if row else PLANS.get(plan, {}).get("price_rub", 0)
 
+TOPUP_MIN = 100
+TOPUP_MAX = 100000
+
 def activate_subscription(user_id, plan, payment_id, provider):
-    """Активирует подписку пользователю на 30 дней."""
+    """Активирует подписку на 30 дней. Если тариф тот же и ещё действует, дни добавляются к остатку."""
     price = get_plan_price(plan)
-    db(f"UPDATE {SCHEMA}.users SET plan=%s WHERE id=%s", (plan, user_id))
+    db(f"""UPDATE {SCHEMA}.users SET
+              plan_expires_at = CASE WHEN plan=%s AND plan_expires_at > NOW()
+                                     THEN plan_expires_at + INTERVAL '30 days'
+                                     ELSE NOW() + INTERVAL '30 days' END,
+              plan=%s
+           WHERE id=%s""", (plan, plan, user_id))
     db(f"INSERT INTO {SCHEMA}.subscriptions (user_id, plan, price_rub, expires_at, payment_id) VALUES (%s,%s,%s,NOW()+INTERVAL '30 days',%s)",
        (user_id, plan, price, payment_id))
     if price > 0:
@@ -64,22 +72,46 @@ def activate_subscription(user_id, plan, payment_id, provider):
            (user_id, price, price, f"Подписка {plan.upper()} через {provider}"))
     print(f"[subscription] uid={user_id} plan={plan} price={price} provider={provider} payment_id={payment_id}")
 
+def sync_plan_expiry(user_id):
+    """Если срок платного тарифа истёк, возвращает пользователя на FREE."""
+    db(f"UPDATE {SCHEMA}.users SET plan='free' WHERE id=%s AND plan<>'free' AND plan_expires_at IS NOT NULL AND plan_expires_at < NOW()", (user_id,))
+
+def wallet_credit_topup(provider, payment_id):
+    """Зачисляет пополнение ровно один раз. Сумма берётся из нашей записи, а не из вебхука."""
+    rows = db(f"UPDATE {SCHEMA}.wallet_transactions SET status='done' WHERE kind='topup' AND provider=%s AND payment_id=%s AND status='pending' RETURNING user_id, amount",
+              (provider, payment_id))
+    if not rows:
+        return False
+    db(f"UPDATE {SCHEMA}.users SET wallet_balance = wallet_balance + %s WHERE id=%s", (rows[0]["amount"], rows[0]["user_id"]))
+    print(f"[wallet] topup uid={rows[0]['user_id']} amount={rows[0]['amount']} provider={provider} payment_id={payment_id}")
+    return True
+
+def yk_get_payment(pid):
+    creds = base64.b64encode(f"{YK_SHOP}:{YK_KEY}".encode()).decode()
+    req = urllib.request.Request(f"https://api.yookassa.ru/v3/payments/{pid}", headers={"Authorization": f"Basic {creds}"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read().decode())
+
 # ── Robokassa ──────────────────────────────────────────────────────────────────
 
-def rk_sign1(amount, inv_id, desc=""):
+def rk_shp_part(shp: dict):
+    """Пользовательские параметры shp_ входят в подпись в алфавитном порядке."""
+    return "".join(f":{k}={shp[k]}" for k in sorted(shp))
+
+def rk_sign1(amount, inv_id, shp=None):
     """Подпись для создания платежа (PASS1)."""
-    raw = f"{RK_LOGIN}:{amount:.2f}:{inv_id}:{RK_PASS1}"
+    raw = f"{RK_LOGIN}:{amount:.2f}:{inv_id}:{RK_PASS1}{rk_shp_part(shp or {})}"
     return hashlib.md5(raw.encode()).hexdigest().upper()
 
-def rk_sign2(amount, inv_id):
+def rk_sign2(amount, inv_id, shp=None):
     """Подпись для верификации вебхука (PASS2)."""
-    raw = f"{amount:.2f}:{inv_id}:{RK_PASS2}"
+    raw = f"{amount:.2f}:{inv_id}:{RK_PASS2}{rk_shp_part(shp or {})}"
     return hashlib.md5(raw.encode()).hexdigest().upper()
 
 def rk_payment_url(amount, inv_id, desc, user_id, plan):
-    sig   = rk_sign1(amount, inv_id)
+    shp_dict = {"shp_plan": plan, "shp_user_id": user_id}
+    sig   = rk_sign1(amount, inv_id, shp_dict)
     test  = f"&IsTest={RK_TEST}" if RK_TEST == "1" else ""
-    # shp_ параметры передаются обратно в вебхуке
     shp   = f"&shp_user_id={user_id}&shp_plan={plan}"
     url   = (f"https://auth.robokassa.ru/Merchant/Index.aspx"
              f"?MerchantLogin={RK_LOGIN}&OutSum={amount:.2f}&InvId={inv_id}"
@@ -143,6 +175,31 @@ def handler(event: dict, context) -> dict:
                 "plans": plans_out,
             })
 
+        if action == "wallet":
+            user = check_session(sid)
+            if not user: return resp({"error": "Не авторизован"}, 401)
+            uid = user["user_id"]
+            sync_plan_expiry(uid)
+            pending = db(f"SELECT payment_id FROM {SCHEMA}.wallet_transactions WHERE user_id=%s AND kind='topup' AND status='pending' AND provider='yookassa' AND created_at > NOW() - INTERVAL '1 day'", (uid,))
+            for p in pending:
+                if YK_SHOP and YK_KEY:
+                    d = yk_get_payment(p["payment_id"])
+                    if d.get("paid") and d.get("status") == "succeeded":
+                        wallet_credit_topup("yookassa", p["payment_id"])
+            u = db(f"SELECT wallet_balance, plan, plan_expires_at FROM {SCHEMA}.users WHERE id=%s", (uid,))[0]
+            days_left = None
+            if u["plan"] != "free" and u["plan_expires_at"]:
+                days_left = db(f"SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM (plan_expires_at - NOW())) / 86400))::int AS d FROM {SCHEMA}.users WHERE id=%s", (uid,))[0]["d"]
+            history = db(f"SELECT kind, amount, status, description, created_at FROM {SCHEMA}.wallet_transactions WHERE user_id=%s AND status<>'pending' ORDER BY created_at DESC LIMIT 30", (uid,))
+            plans_out = {k: {**p, "price_rub": get_plan_price(k)} for k, p in PLANS.items()}
+            return resp({
+                "balance": float(u["wallet_balance"]), "plan": u["plan"],
+                "plan_expires_at": str(u["plan_expires_at"]) if u["plan_expires_at"] else None,
+                "days_left": days_left, "history": history, "plans": plans_out,
+                "min_topup": TOPUP_MIN, "max_topup": TOPUP_MAX,
+                "robokassa": bool(RK_LOGIN and RK_PASS1 and RK_PASS2), "yookassa": bool(YK_SHOP and YK_KEY),
+            })
+
         # Статус конкретного платежа ЮKassa (для polling)
         if action == "yk_payment" and params.get("payment_id"):
             if not (YK_SHOP and YK_KEY):
@@ -201,6 +258,74 @@ def handler(event: dict, context) -> dict:
 
             return resp({"error": "Неверный провайдер"}, 400)
 
+        # ── Кошелёк Алтын: создать пополнение ────────────────────────────────
+        if action == "wallet_topup":
+            user = check_session(sid)
+            if not user: return resp({"error": "Не авторизован"}, 401)
+            uid = user["user_id"]
+            try:
+                amount = round(float(body.get("amount") or 0), 2)
+            except (TypeError, ValueError):
+                return resp({"error": "Некорректная сумма"}, 400)
+            if amount < TOPUP_MIN or amount > TOPUP_MAX:
+                return resp({"error": f"Сумма пополнения от {TOPUP_MIN} до {TOPUP_MAX} ₽"}, 400)
+            provider = body.get("provider", "robokassa")
+
+            if provider == "robokassa":
+                if not (RK_LOGIN and RK_PASS1):
+                    return resp({"error": "Robokassa не подключена"}, 400)
+                inv_id = int(time.time() * 1000) % 2147483647
+                sig  = rk_sign1(amount, inv_id)
+                test = f"&IsTest={RK_TEST}" if RK_TEST == "1" else ""
+                url  = (f"https://auth.robokassa.ru/Merchant/Index.aspx?MerchantLogin={RK_LOGIN}&OutSum={amount:.2f}"
+                        f"&InvId={inv_id}&Description={urllib.request.quote('Пополнение кошелька Алтын')}&SignatureValue={sig}{test}")
+                db(f"INSERT INTO {SCHEMA}.wallet_transactions (user_id, kind, amount, status, provider, payment_id, description) VALUES (%s,'topup',%s,'pending','robokassa',%s,'Пополнение кошелька Алтын')",
+                   (uid, amount, str(inv_id)))
+                return resp({"ok": True, "payment_url": url})
+
+            if provider == "yookassa":
+                if not (YK_SHOP and YK_KEY):
+                    return resp({"error": "ЮKassa не подключена"}, 400)
+                return_url = body.get("return_url", "https://crypto-bot-profit.poehali.dev/")
+                payload = json.dumps({
+                    "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
+                    "confirmation": {"type": "redirect", "return_url": return_url},
+                    "capture": True,
+                    "description": f"Пополнение кошелька Алтын · uid={uid}",
+                    "metadata": {"user_id": str(uid), "kind": "topup"},
+                }).encode()
+                creds = base64.b64encode(f"{YK_SHOP}:{YK_KEY}".encode()).decode()
+                req = urllib.request.Request("https://api.yookassa.ru/v3/payments", data=payload, method="POST",
+                    headers={"Authorization": f"Basic {creds}", "Content-Type": "application/json", "Idempotence-Key": str(uuid.uuid4())})
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    d = json.loads(r.read().decode())
+                db(f"INSERT INTO {SCHEMA}.wallet_transactions (user_id, kind, amount, status, provider, payment_id, description) VALUES (%s,'topup',%s,'pending','yookassa',%s,'Пополнение кошелька Алтын')",
+                   (uid, amount, d["id"]))
+                return resp({"ok": True, "payment_url": d.get("confirmation", {}).get("confirmation_url", "")})
+
+            return resp({"error": "Неверный провайдер"}, 400)
+
+        # ── Кошелёк Алтын: оплатить тариф с баланса ──────────────────────────
+        if action == "wallet_pay_plan":
+            user = check_session(sid)
+            if not user: return resp({"error": "Не авторизован"}, 401)
+            uid  = user["user_id"]
+            plan = body.get("plan", "")
+            if plan not in PLANS:
+                return resp({"error": "Неверный тариф"}, 400)
+            price = float(get_plan_price(plan))
+            if price <= 0:
+                return resp({"error": "Цена тарифа не задана"}, 400)
+            charged = db(f"UPDATE {SCHEMA}.users SET wallet_balance = wallet_balance - %s WHERE id=%s AND wallet_balance >= %s RETURNING wallet_balance",
+                         (price, uid, price))
+            if not charged:
+                return resp({"error": "Недостаточно средств на кошельке. Пополни баланс."}, 400)
+            db(f"INSERT INTO {SCHEMA}.wallet_transactions (user_id, kind, amount, status, provider, description) VALUES (%s,'plan_payment',%s,'done','wallet',%s)",
+               (uid, -price, f"Оплата тарифа {plan.upper()} · 30 дней"))
+            activate_subscription(uid, plan, f"wallet-{uid}-{int(time.time())}", "wallet")
+            exp = db(f"SELECT plan_expires_at FROM {SCHEMA}.users WHERE id=%s", (uid,))[0]["plan_expires_at"]
+            return resp({"ok": True, "balance": float(charged[0]["wallet_balance"]), "plan": plan, "plan_expires_at": str(exp)})
+
         # ── Вебхук Robokassa (ResultURL) ──────────────────────────────────────
         if action == "robokassa_webhook":
             out_sum  = body.get("OutSum", "")
@@ -212,13 +337,17 @@ def handler(event: dict, context) -> dict:
             if not (RK_PASS2 and out_sum and inv_id):
                 return resp({"error": "Неверные параметры"}, 400)
 
-            expected = rk_sign2(float(out_sum), int(inv_id))
+            is_topup = bool(db(f"SELECT 1 FROM {SCHEMA}.wallet_transactions WHERE kind='topup' AND provider='robokassa' AND payment_id=%s", (str(inv_id),)))
+            shp = {} if is_topup else {"shp_plan": plan, "shp_user_id": user_id}
+            expected = rk_sign2(float(out_sum), int(inv_id), shp)
             if sign_in != expected:
                 print(f"[rk_webhook] INVALID SIG: got={sign_in} expected={expected}")
                 return resp({"error": "Неверная подпись"}, 400)
 
-            activate_subscription(int(user_id), plan, str(inv_id), "robokassa")
-            # Robokassa ожидает ответ "OK{InvId}"
+            if is_topup:
+                wallet_credit_topup("robokassa", str(inv_id))
+            else:
+                activate_subscription(int(user_id), plan, str(inv_id), "robokassa")
             return {"statusCode": 200, "headers": CORS, "body": f"OK{inv_id}"}
 
         # ── Вебхук ЮKassa ─────────────────────────────────────────────────────
@@ -229,14 +358,24 @@ def handler(event: dict, context) -> dict:
                 return resp({"ok": True, "skipped": event_type})
 
             pid      = obj.get("id", "")
-            meta     = obj.get("metadata", {})
+            if not pid:
+                return resp({"error": "Нет id платежа"}, 400)
+
+            verified = yk_get_payment(pid)
+            if not (verified.get("paid") and verified.get("status") == "succeeded"):
+                return resp({"ok": True, "skipped": "not_paid"})
+
+            meta     = verified.get("metadata", {})
             user_id  = meta.get("user_id", "")
             plan     = meta.get("plan", "")
 
-            if not (pid and user_id and plan):
+            if meta.get("kind") == "topup":
+                wallet_credit_topup("yookassa", pid)
+                return resp({"ok": True})
+
+            if not (user_id and plan):
                 return resp({"error": "Нет метаданных"}, 400)
 
-            # Проверяем IP ЮKassa (опционально, для надёжности)
             activate_subscription(int(user_id), plan, pid, "yookassa")
             return resp({"ok": True})
 
