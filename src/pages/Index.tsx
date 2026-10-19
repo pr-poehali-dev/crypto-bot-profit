@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Icon from "@/components/ui/icon";
+import CryptoExchangesPage from "@/components/CryptoExchangesPage";
 
 // ── Тарифные планы (единый источник правды) ──────────────────────────────────
 const PLAN_INFO = {
@@ -223,6 +224,7 @@ const NAV_ITEMS = [
   { id: "sberbank", icon: "Building2", label: "Сбербанк" },
   { id: "vtb", icon: "Building2", label: "ВТБ" },
   { id: "bingx", icon: "BarChart2", label: "BingX" },
+  { id: "exchanges", icon: "Landmark", label: "Криптобиржи" },
   { id: "autobot", icon: "Bot", label: "Автобот" },
   { id: "wallet", icon: "Wallet", label: "Кошелёк" },
 
@@ -5745,6 +5747,7 @@ function AppShell({ user, onLogout }: { user: { username: string; role: string }
       case "sberbank": return <ManualBrokerPage broker="sberbank" />;
       case "vtb": return <ManualBrokerPage broker="vtb" />;
       case "bingx": return <BingXPage />;
+      case "exchanges": return <CryptoExchangesPage />;
       case "autobot": return <AutoBotPage
         botEnabled={botEnabled} setBotEnabled={setBotEnabled}
         botIntervalMin={botIntervalMin} setBotIntervalMin={setBotIntervalMin}
